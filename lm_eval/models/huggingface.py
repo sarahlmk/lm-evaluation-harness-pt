@@ -247,6 +247,11 @@ class HFLM(LM):
         self.batch_sizes = {}
         self.max_batch_size = max_batch_size
 
+        self._conservative_batch_size = False
+        if batch_size == "conservative":
+            batch_size = "auto"
+            self._conservative_batch_size = True
+
         if str(batch_size).startswith("auto"):
             batch_size = batch_size.split(":")
             self.batch_size_per_gpu = batch_size[0]
@@ -607,19 +612,29 @@ class HFLM(LM):
 
             return batch_size
 
-        batch_size = forward_batch()
+        try:
+            batch_size = forward_batch()
 
-        if self.world_size > 1:
-            # if multi-GPU, always take minimum over all selected batch sizes
-            max_rnk_bs = torch.tensor([batch_size], device=self.device)
-            gathered = (
-                self.accelerator.gather(max_rnk_bs).cpu().detach().numpy().tolist()
-            )
-            batch_size = min(gathered)
+            if self.world_size > 1:
+                # if multi-GPU, always take minimum over all selected batch sizes
+                max_rnk_bs = torch.tensor([batch_size], device=self.device)
+                gathered = (
+                    self.accelerator.gather(max_rnk_bs).cpu().detach().numpy().tolist()
+                )
+                batch_size = min(gathered)
+
+                if self._conservative_batch_size and batch_size > 1:
+                    # if using conservative batch size, halve batch size
+                    # to ensure no OOMs
+                    batch_size = batch_size // 2
+
+                utils.clear_torch_cache()
+                return batch_size
+        except:
+            batch_size = 1
+        finally:
             utils.clear_torch_cache()
-            return batch_size
 
-        utils.clear_torch_cache()
         return batch_size
 
     def tok_encode(
