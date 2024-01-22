@@ -9,7 +9,7 @@ def doc_to_target(doc):
     return trans_label_classes[doc['label']]
 
 def levenshtein_similarity_match(predictions, references):  # This is a passthrough function
-    print(predictions, references)
+    
     string_label = [s.lower() for s in trans_label_classes]
     
     prediction = predictions[0].strip().lower()
