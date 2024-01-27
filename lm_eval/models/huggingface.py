@@ -109,7 +109,7 @@ def find_executable_memory_size(function: callable = None, starting_batch_size: 
             if batch_size == 1 and max_length == 0:
                 raise RuntimeError("No executable batch and length size found, reached zero.")
             try:
-                return function(batch_size, *args, **kwargs)
+                return function(batch_size, max_length, *args, **kwargs)
             except Exception as e:
                 if should_reduce_memory_size(e):
                     gc.collect()
