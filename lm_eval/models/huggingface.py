@@ -876,7 +876,7 @@ class HFLM(LM):
             # using rolling window with maximum context
             print("Passed argument batch_size = auto. Detecting largest batch size")
             batch_size, _ = self._detect_batch_size_and_length()
-            print(f"Determined Largest batch size: {batch_size}")
+            print(f"Determined Largest batch size: {batch_size} and max_length: {self.max_length}")
             adaptive_batch_size = batch_size
 
         for (string,) in tqdm([req.args for req in requests], disable=(self.rank != 0)):
@@ -938,7 +938,7 @@ class HFLM(LM):
             f"Passed argument batch_size = auto:{self.batch_schedule}. Detecting largest batch size"
         )
         self.batch_sizes[sched], _ = self._detect_batch_size_and_length(n_reordered_requests, pos)
-        print(f"Determined largest batch size: {self.batch_sizes[sched]}")
+        print(f"Determined largest batch size: {self.batch_sizes[sched]} and max_length: {self.max_length}")
         return self.batch_sizes[sched]
 
     def _loglikelihood_tokens(
@@ -1144,7 +1144,7 @@ class HFLM(LM):
             # using rolling window with maximum context
             print("Passed argument batch_size = auto. Detecting largest batch size")
             batch_size, _ = self._detect_batch_size_and_length()
-            print(f"Determined Largest batch size: {batch_size}")
+            print(f"Determined Largest batch size: {batch_size} and max_length: {self.max_length}")
             adaptive_batch_size = batch_size
         # for each different set of kwargs, we execute all requests, by batch.
         batch_size = (
