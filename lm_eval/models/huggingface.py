@@ -106,8 +106,8 @@ def find_executable_memory_size(function: callable = None, starting_batch_size: 
                 f"Remove this as the decorator already does so: `{function.__name__}({arg_str})`"
             )
         while True:
-            if batch_size == 1 and max_length == 0:
-                raise RuntimeError("No executable batch and length size found, reached zero.")
+            if batch_size == 1 and max_length < 128:
+                raise RuntimeError(f"No executable batch and length size found, batch reached zero at max_len {max_length}.")
             try:
                 return function(batch_size, max_length, *args, **kwargs)
             except Exception as e:
@@ -705,7 +705,7 @@ class HFLM(LM):
                 if batch_size > 1:
                     batch_size = batch_size // 2
                 else:
-                    max_length = max_length - 128
+                    max_length = max_length - (max_length // 8)
         except:
             batch_size = 1
             max_length = 512
