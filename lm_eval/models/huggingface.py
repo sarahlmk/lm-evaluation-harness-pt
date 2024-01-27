@@ -22,6 +22,9 @@ from lm_eval.api.model import LM
 from lm_eval.api.registry import register_model
 from lm_eval.utils import Collator, stop_sequences_criteria
 
+import functools
+import gc
+import inspect
 
 eval_logger = utils.eval_logger
 
@@ -50,6 +53,76 @@ def _get_accelerate_args(
     args["offload_folder"] = offload_folder
     return args
 
+#adapted from https://github.com/huggingface/accelerate/blob/v0.11.0/src/accelerate/utils/memory.py#L45
+def should_reduce_memory_size(exception: Exception) -> bool:
+    """
+    Checks if `exception` relates to CUDA out-of-memory, CUDNN not supported, or CPU out-of-memory
+
+    Args:
+        exception (`Exception`):
+            An exception
+    """
+    _statements = [
+        "CUDA out of memory.",  # CUDA OOM
+        "cuDNN error: CUDNN_STATUS_NOT_SUPPORTED.",  # CUDNN SNAFU
+        "DefaultCPUAllocator: can't allocate memory",  # CPU OOM
+    ]
+    if isinstance(exception, RuntimeError) and len(exception.args) == 1:
+        return any(err in exception.args[0] for err in _statements)
+    return False
+
+
+def find_executable_memory_size(function: callable = None, starting_batch_size: int = 128, starting_max_length: int = 2048):
+    """
+    A basic decorator that will try to execute `function`. If it fails from exceptions related to out-of-memory or
+    CUDNN, the batch size is cut in half and passed to `function`
+
+    `function` must take in a `batch_size` parameter as its first argument.
+
+    Args:
+        function (`callable`, *optional*):
+            A function to wrap
+        starting_batch_size (`int`, *optional*):
+            The batch size to try and fit into memory
+        starting_max_length (`int`, *optional*):
+            The max length size to try and fit into memory
+    """
+    if function is None:
+        return functools.partial(find_executable_memory_size, starting_batch_size=starting_batch_size, starting_max_length=2048)
+
+    batch_size = starting_batch_size
+    max_length = starting_max_length
+
+    def decorator(*args, **kwargs):
+        nonlocal batch_size, max_length
+        gc.collect()
+        torch.cuda.empty_cache()
+        params = list(inspect.signature(function).parameters.keys())
+        # Guard against user error
+        if len(params) < (len(args) + 1):
+            arg_str = ", ".join([f"{arg}={value}" for arg, value in zip(params[1:], args[1:])])
+            raise TypeError(
+                f"Batch size was passed into `{function.__name__}` as the first argument when called."
+                f"Remove this as the decorator already does so: `{function.__name__}({arg_str})`"
+            )
+        while True:
+            if batch_size == 1 and max_length == 0:
+                raise RuntimeError("No executable batch and length size found, reached zero.")
+            try:
+                return function(batch_size, *args, **kwargs)
+            except Exception as e:
+                if should_reduce_memory_size(e):
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    if batch_size > 1:
+                        batch_size //= 2
+                    else:
+                        max_length //= 2
+                else:
+                    raise
+
+    return decorator
+
 
 @register_model("hf-auto", "hf", "huggingface")
 class HFLM(LM):
@@ -62,6 +135,7 @@ class HFLM(LM):
 
     AUTO_MODEL_CLASS = None
     _DEFAULT_MAX_LENGTH = 2048
+    _MAXIMUM_POSSIBLE_LENGTH=262144
 
     def __init__(
         self,
@@ -339,7 +413,7 @@ class HFLM(LM):
             if hasattr(self.model.config, attr):
                 return getattr(self.model.config, attr)
         if hasattr(self.tokenizer, "model_max_length"):
-            if self.tokenizer.model_max_length == 1000000000000000019884624838656:
+            if self.tokenizer.model_max_length > self._MAXIMUM_POSSIBLE_LENGTH:
                 return self._DEFAULT_MAX_LENGTH
             return self.tokenizer.model_max_length
         return self._DEFAULT_MAX_LENGTH
@@ -577,7 +651,8 @@ class HFLM(LM):
             )
         return None
 
-    def _detect_batch_size(self, requests=None, pos: int = 0):
+    def _detect_batch_size_and_length(self, requests=None, pos: int = 0):
+        """
         if requests:
             _, context_enc, continuation_enc = requests[pos]
             max_length = len(
@@ -586,13 +661,14 @@ class HFLM(LM):
             max_context_enc = len(context_enc[-(self.max_length + 1) :])
             max_cont_enc = len(continuation_enc[-(self.max_length + 1) :])
         else:
-            max_length = self.max_length
+        """
+        #max_length = self.max_length
 
         # if OOM, then halves batch_size and tries again
-        @find_executable_batch_size(starting_batch_size=self.max_batch_size)
-        def forward_batch(batch_size):
+        @find_executable_memory_size(starting_batch_size=self.max_batch_size, starting_max_length=self.max_length)
+        def forward_batch(batch_size, max_length):
             if self.AUTO_MODEL_CLASS == transformers.AutoModelForSeq2SeqLM:
-                length = max(max_context_enc, max_cont_enc)
+                length = max_length #= max(max_context_enc, max_cont_enc)
                 batched_conts = torch.ones(
                     (batch_size, length), device=self.device
                 ).long()
@@ -610,10 +686,10 @@ class HFLM(LM):
                 out = F.log_softmax(self._model_call(test_batch, **call_kwargs), dim=-1)
                 out = out  # Identity process so that it passes pre-commit
 
-            return batch_size
+            return batch_size, max_length
 
         try:
-            batch_size = forward_batch()
+            batch_size, max_length = forward_batch()
 
             if self.world_size > 1:
                 # if multi-GPU, always take minimum over all selected batch sizes
@@ -623,19 +699,23 @@ class HFLM(LM):
                 )
                 batch_size = min(gathered)
 
-                if self._conservative_batch_size and batch_size > 1:
-                    # if using conservative batch size, halve batch size
-                    # to ensure no OOMs
+            if self._conservative_batch_size:
+                # if using conservative batch size, halve batch size or descrese the max_length
+                # to ensure no OOMs
+                if batch_size > 1:
                     batch_size = batch_size // 2
-
-                utils.clear_torch_cache()
-                return batch_size
+                else:
+                    max_length = max_length - 128
         except:
             batch_size = 1
+            max_length = 512
         finally:
             utils.clear_torch_cache()
 
-        return batch_size
+        if self._max_length is None and self.max_length >= max_length:
+            self._max_length = max_length
+
+        return batch_size, max_length
 
     def tok_encode(
         self, string: str, left_truncate_len=None, add_special_tokens=None
@@ -795,7 +875,7 @@ class HFLM(LM):
         if self.batch_size == "auto":
             # using rolling window with maximum context
             print("Passed argument batch_size = auto. Detecting largest batch size")
-            batch_size = self._detect_batch_size()
+            batch_size, _ = self._detect_batch_size_and_length()
             print(f"Determined Largest batch size: {batch_size}")
             adaptive_batch_size = batch_size
 
@@ -857,7 +937,7 @@ class HFLM(LM):
         print(
             f"Passed argument batch_size = auto:{self.batch_schedule}. Detecting largest batch size"
         )
-        self.batch_sizes[sched] = self._detect_batch_size(n_reordered_requests, pos)
+        self.batch_sizes[sched], _ = self._detect_batch_size_and_length(n_reordered_requests, pos)
         print(f"Determined largest batch size: {self.batch_sizes[sched]}")
         return self.batch_sizes[sched]
 
@@ -1063,7 +1143,7 @@ class HFLM(LM):
         if self.batch_size == "auto":
             # using rolling window with maximum context
             print("Passed argument batch_size = auto. Detecting largest batch size")
-            batch_size = self._detect_batch_size()
+            batch_size, _ = self._detect_batch_size_and_length()
             print(f"Determined Largest batch size: {batch_size}")
             adaptive_batch_size = batch_size
         # for each different set of kwargs, we execute all requests, by batch.
