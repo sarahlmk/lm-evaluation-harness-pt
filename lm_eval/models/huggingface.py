@@ -88,7 +88,7 @@ def find_executable_memory_size(function: callable = None, starting_batch_size: 
             The max length size to try and fit into memory
     """
     if function is None:
-        return functools.partial(find_executable_memory_size, starting_batch_size=starting_batch_size, starting_max_length=2048)
+        return functools.partial(find_executable_memory_size, starting_batch_size=starting_batch_size, starting_max_length=starting_max_length)
 
     batch_size = starting_batch_size
     max_length = starting_max_length
@@ -663,7 +663,7 @@ class HFLM(LM):
         else:
         """
         #max_length = self.max_length
-
+        eval_logger.info(f"Detecting batch size and max length, starting with batch size {self.max_batch_size} and max length {self.max_length}")
         # if OOM, then halves batch_size and tries again
         @find_executable_memory_size(starting_batch_size=self.max_batch_size, starting_max_length=self.max_length)
         def forward_batch(batch_size, max_length):
