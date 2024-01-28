@@ -4,14 +4,20 @@ task: brazilian_court_decisions_judgment_generate
 dataset_path: eduagarcia/portuguese_benchmark
 dataset_name: brazilian_court_decisions_judgment
 output_type: generate_until
-training_split: train
-validation_split: validation
+fewshot_split: train
+fewshot_config:
+  sampler: first_n
 test_split: test
+num_fewshot: 5
 description: "Abaixo contém a ementa de decisões judiciais de um tribunal brasileiro, classifique se a decisão foi\
   \ totalmente favorável ao recurso (Aceita), parcialmente favorável (Parcial) ou se o recurso foi negado (Negada).\n\n"
 doc_to_text: "Decisão: {{sentence}}\nA decisão foi Aceita, Parcial ou Negada?\nResposta:"
 doc_to_target: !function util.doc_to_target
 #doc_to_choice: ['Aceita', 'Parcial', 'Negada']
+generation_kwargs:
+  max_gen_toks: 32
+  do_sample: false
+  temperature: 0.0
 metric_list:
   - metric: !function "util.levenshtein_similarity_match"
     name: "f1_macro"
@@ -22,4 +28,4 @@ metric_list:
     aggregation: acc
     higher_is_better: true
 metadata:
-  version: 1.0
+  version: 1.1
