@@ -18,6 +18,7 @@ class Instance:
     task_name: str = None
     doc_id: str = None
     repeats: str = None
+    stats: dict = None
 
     def __post_init__(self) -> None:
         # unpack metadata field

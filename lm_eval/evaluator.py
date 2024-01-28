@@ -310,6 +310,7 @@ def evaluate(
 
     ### Run LM on inputs, get all outputs ###
     # execute each type of request
+    accumulated_stats = {}
     for reqtype, reqs in requests.items():
         eval_logger.info("Running {} requests".format(reqtype))
         # create `K` copies of each request `req` based off `K = req.repeats`
@@ -323,6 +324,15 @@ def evaluate(
 
         # run requests through model
         resps = getattr(lm, reqtype)(cloned_reqs)
+        stats = {}
+        if len(resps) == 2:
+            resps, stats = resps
+        
+        for k, v in stats.items():
+            if k not in accumulated_stats:
+                accumulated_stats[k] = v
+            else:
+                accumulated_stats[k] += v
 
         # put responses from model into a list of length K for each request.
         for x, req in zip(resps, cloned_reqs):
@@ -605,6 +615,7 @@ def evaluate(
             "configs": dict(sorted(configs.items())),
             "versions": dict(sorted(versions.items())),
             "n-shot": dict(sorted(num_fewshot.items())),
+            'stats': accumulated_stats
         }
         if log_samples:
             results_dict["samples"] = dict(samples)
