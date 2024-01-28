@@ -346,6 +346,7 @@ class Task(abc.ABC):
             limit = self.config.limit
         
         self.limit = limit
+        self.config.limit = limit
 
         instances = []
         for doc_id, doc in utils.create_iterator(

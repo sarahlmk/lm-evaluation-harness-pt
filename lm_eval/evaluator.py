@@ -20,18 +20,20 @@ from lm_eval.utils import (
     eval_logger,
 )
 
+from typing import List, Optional, Union
+
 
 @positional_deprecated
 def simple_evaluate(
     model,
     model_args=None,
     tasks=[],
-    num_fewshot=None,
+    num_fewshot: Optional[Union[List[Optional[int]], int]] = None,
     batch_size=None,
     max_batch_size=None,
     device=None,
     use_cache=None,
-    limit=None,
+    limit: Optional[Union[List[Optional[Union[int, float]]], int, float]] = None,
     bootstrap_iters: int = 100000,
     check_integrity: bool = False,
     decontamination_ngrams_path=None,
@@ -48,7 +50,7 @@ def simple_evaluate(
         Ignored if `model` argument is a LM object.
     :param tasks: list[Union[str, Task]]
         List of task names or Task objects. Task objects will be taken to have name task.EVAL_HARNESS_NAME if defined and type(task).__name__ otherwise.
-    :param num_fewshot: int
+    :param num_fewshot: List or int, optional
         Number of examples in few-shot context
     :param batch_size: int or str, optional
         Batch size for model
@@ -58,7 +60,7 @@ def simple_evaluate(
         PyTorch device (e.g. "cpu" or "cuda:0") for running models
     :param use_cache: str, optional
         A path to a sqlite db file for caching model responses. `None` if not caching.
-    :param limit: int or float, optional
+    :param limit: List, int or float, optional
         Limit the number of examples per task (only use this for testing), If <1, limit is a percentage of the total number of examples.
     :param bootstrap_iters:
         Number of iterations for bootstrap statistics
@@ -119,8 +121,15 @@ def simple_evaluate(
             + ".db",
         )
 
+
     task_dict = lm_eval.tasks.get_task_dict(tasks)
-    for task_name in task_dict.keys():
+
+    if isinstance(num_fewshot, list):
+        num_fewshots = num_fewshot
+    else:
+        num_fewshots = [num_fewshot] * len(task_dict)
+
+    for task_name, n_fshot in zip(task_dict.keys(), num_fewshots):
         task_obj = task_dict[task_name]
         if type(task_obj) == tuple:
             group, task_obj = task_obj
@@ -131,7 +140,7 @@ def simple_evaluate(
         if config["output_type"] == "generate_until" and gen_kwargs is not None:
             config["generation_kwargs"].update(gen_kwargs)
 
-        if num_fewshot is not None:
+        if n_fshot is not None:
             if config["num_fewshot"] == 0:
                 eval_logger.info(
                     f"num_fewshot has been set to 0 for {task_name} in its config. Manual configuration will be ignored."
@@ -139,10 +148,10 @@ def simple_evaluate(
             else:
                 default_num_fewshot = config["num_fewshot"]
                 eval_logger.warning(
-                    f"Overwriting default num_fewshot of {task_name} from {default_num_fewshot} to {num_fewshot}"
+                    f"Overwriting default num_fewshot of {task_name} from {default_num_fewshot} to {n_fshot}"
                 )
 
-                task_obj._config["num_fewshot"] = num_fewshot
+                task_obj._config["num_fewshot"] = n_fshot
 
     if check_integrity:
         run_task_tests(task_list=tasks)
@@ -187,7 +196,7 @@ decontaminate_suffix = "_decontaminate"
 def evaluate(
     lm,
     task_dict,
-    limit=None,
+    limit: Optional[Union[List[Optional[Union[int, float]]], int, float]] = None,
     bootstrap_iters: int = 100000,
     decontamination_ngrams_path=None,
     write_out: bool = False,
@@ -239,8 +248,13 @@ def evaluate(
     # tracks model processing of each task
     task_model_meta = collections.defaultdict(dict)
 
+    if isinstance(limit, list):
+        limits = limit
+    else:
+        limits = [limit] * len(task_dict) 
+
     # get lists of each type of request
-    for task_name, task in task_dict.items():
+    for (task_name, task), n_limit in zip(task_dict.items(), limits):
         if type(task) == tuple:
             group_name, task = task
             task_hierarchy[group_name].append(task_name)
@@ -272,16 +286,16 @@ def evaluate(
         ):
             results[group_name]["alias"] = configs[task_name]["group_alias"]
 
-        if limit is not None:
+        if n_limit is not None:
             if task.has_test_docs():
                 task_docs = task.test_docs()
             elif task.has_validation_docs():
                 task_docs = task.validation_docs()
             else:
                 raise RuntimeError("Task has neither test_docs nor validation_docs")
-            limit = int(len(task_docs) * limit) if limit < 1.0 else int(limit)
+            n_limit = int(len(task_docs) * n_limit) if n_limit < 1.0 else int(n_limit)
         
-        task.build_all_requests(limit=limit, rank=lm.rank, world_size=lm.world_size)
+        task.build_all_requests(limit=n_limit, rank=lm.rank, world_size=lm.world_size)
 
         eval_logger.debug(
             f"Task: {task_name}; number of requests on this rank: {len(task.instances)}"
@@ -363,7 +377,7 @@ def evaluate(
     vals = collections.defaultdict(list)
 
     # unpack results and sort back in order and return control to Task
-    for task_name, task in task_dict.items():
+    for (task_name, task), n_limit in zip(task_dict.items(), limits):
         if type(task) == tuple:
             group, task = task
             if task is None:
@@ -373,11 +387,11 @@ def evaluate(
         for key in task.instances[0].filtered_resps.keys():
             doc_iterator = (
                 itertools.islice(
-                    enumerate(task.test_docs()), lm.rank, getattr(task, 'limit', limit), lm.world_size
+                    enumerate(task.test_docs()), lm.rank, getattr(task, 'limit', n_limit), lm.world_size
                 )
                 if task.has_test_docs()
                 else itertools.islice(
-                    enumerate(task.validation_docs()), lm.rank, getattr(task, 'limit', limit), lm.world_size
+                    enumerate(task.validation_docs()), lm.rank, getattr(task, 'limit', n_limit), lm.world_size
                 )
             )
             for doc_id, doc in doc_iterator:
@@ -469,7 +483,7 @@ def evaluate(
             }
 
             if len(task_samples) > 0 and 'tokenized_was_truncated' in task_samples[0]:
-                
+
                 task_model_meta[task_name]["truncated"] = 0
                 task_model_meta[task_name]["non_truncated"] = 0
                 task_model_meta[task_name]["padded"] = 0

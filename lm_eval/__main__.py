@@ -43,9 +43,9 @@ def parse_eval_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_fewshot",
         "-f",
-        type=int,
+        type=str,
         default=None,
-        metavar="N",
+        metavar="N|N1,N2",
         help="Number of examples in few-shot context",
     )
     parser.add_argument(
@@ -80,9 +80,9 @@ def parse_eval_args() -> argparse.Namespace:
     parser.add_argument(
         "--limit",
         "-L",
-        type=float,
+        type=str,
         default=None,
-        metavar="N|0<N<1",
+        metavar="N|0<N<1|N1,N2",
         help="Limit the number of examples per task. "
         "If <1, limit is a percentage of the total number of examples.",
     )
@@ -228,16 +228,30 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
 
     eval_logger.info(f"Selected Tasks: {task_names}")
 
+    num_fewshots = None
+    if args.num_fewshot is not None:
+        if ',' in args.num_fewshot:
+            num_fewshots = [None if n == 'None' else int(n) for n in args.num_fewshot.split(',')]
+        else:
+            num_fewshots = int(args.num_fewshot)
+
+    limits = None
+    if args.limit is not None:
+        if ',' in args.limit:
+            limits = [None if n == 'None' else float(n) for n in args.limit.split(',')]
+        else:
+            limits = float(args.limit)
+
     results = evaluator.simple_evaluate(
         model=args.model,
         model_args=args.model_args,
         tasks=task_names,
-        num_fewshot=args.num_fewshot,
+        num_fewshot=num_fewshots,
         batch_size=args.batch_size,
         max_batch_size=args.max_batch_size,
         device=args.device,
         use_cache=args.use_cache,
-        limit=args.limit,
+        limit=limits,
         decontamination_ngrams_path=args.decontamination_ngrams_path,
         check_integrity=args.check_integrity,
         write_out=args.write_out,
