@@ -351,10 +351,14 @@ class Task(abc.ABC):
                 0 if self.config.num_fewshot is None else self.config.num_fewshot,
             )
 
+            if isinstance(fewshot_ctx, tuple) and len(fewshot_ctx) == 2:
+                fewshot_ctx, ctx_data = fewshot_ctx
+
             # TODO: we should override self.config.repeats if doing greedy gen so users don't waste time+compute
             inst = self.construct_requests(
                 doc=doc,
                 ctx=fewshot_ctx,
+                ctx_data=ctx_data,
                 metadata=(self.config["task"], doc_id, self.config.repeats),
             )
 
@@ -476,18 +480,30 @@ class Task(abc.ABC):
                 # get rid of the doc that's the one we're evaluating, if it's in the fewshot
                 fewshotex = [x for x in fewshotex if x != doc][:num_fewshot]
 
+            shots = [
+                (self.doc_to_text(doc), self.doc_to_target(doc))
+                for doc in fewshotex
+            ]
+
             labeled_examples = (
                 "\n\n".join(
                     [
-                        self.doc_to_text(doc) + self.doc_to_target(doc)
-                        for doc in fewshotex
+                        shot[0] + shot[1]
+                        for shot in shots
                     ]
                 )
                 + "\n\n"
             )
 
         example = self.doc_to_text(doc)
-        return description + labeled_examples + example
+
+        ctx_data = {
+            'description': description,
+            'fewshots': shots,
+            'example': example
+        }
+
+        return description + labeled_examples + example, ctx_data
 
     def apply_filters(self):
         if hasattr(self, "_filters"):
@@ -797,24 +813,30 @@ class ConfigurableTask(Task):
             # always prepend the (possibly empty) task description
             labeled_examples = self.config.description
         else:
-            labeled_examples = self.config.description + self.sampler.get_context(
-                doc, num_fewshot
-            )
+            fewshots_text, fewshots = self.sampler.get_context(doc, num_fewshot)
+            labeled_examples = self.config.description + fewshots_text
 
         example = self.doc_to_text(doc)
+
+        ctx_data = {
+            'description': self.config.description,
+            'fewshots': fewshots,
+            'example': example
+        }
+
         if self.multiple_input:
-            return labeled_examples
+            return labeled_examples, ctx_data
         else:
             if isinstance(example, str):
-                return labeled_examples + example
+                return labeled_examples + example, ctx_data
             elif isinstance(example, list):
-                return [labeled_examples + ex for ex in example]
+                return [labeled_examples + ex for ex in example], ctx_data
             elif isinstance(example, int):
                 if self.config.doc_to_choice is not None:
                     choices = self.doc_to_choice(doc)
-                    return labeled_examples + choices[example]
+                    return labeled_examples + choices[example], ctx_data
                 else:
-                    return labeled_examples + str(example)
+                    return labeled_examples + str(example), ctx_data
 
     def apply_filters(self):
         if hasattr(self, "_filters"):

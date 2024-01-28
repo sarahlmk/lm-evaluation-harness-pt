@@ -325,7 +325,7 @@ def evaluate(
         # run requests through model
         resps = getattr(lm, reqtype)(cloned_reqs)
         stats = {}
-        if len(resps) == 2:
+        if isinstance(resps, tuple) and len(resps) == 2:
             resps, stats = resps
         
         for k, v in stats.items():

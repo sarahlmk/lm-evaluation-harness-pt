@@ -170,6 +170,7 @@ class HFLM(LM):
         # PEFT and quantization options
         peft: Optional[str] = None,
         autogptq: Optional[Union[bool, str]] = False,
+        apply_chat_template: Optional[bool] = True, #apply chat template to input if available
         **kwargs,
     ) -> None:
         super().__init__()
@@ -206,6 +207,7 @@ class HFLM(LM):
             assert isinstance(batch_size, (int, str))
 
             gpus = torch.cuda.device_count()
+            self.gpus = gpus
             accelerator = Accelerator()
             if accelerator.num_processes > 1:
                 self.accelerator = accelerator
@@ -296,6 +298,7 @@ class HFLM(LM):
             revision=revision,
             trust_remote_code=trust_remote_code,
             use_fast_tokenizer=use_fast_tokenizer,
+            apply_chat_template=apply_chat_template
         )
 
         self.truncation = truncation
@@ -615,6 +618,7 @@ class HFLM(LM):
         revision: Optional[str] = "main",
         trust_remote_code: Optional[bool] = False,
         use_fast_tokenizer: Optional[bool] = True,
+        apply_chat_template: Optional[bool] = True,
     ) -> None:
         """
         Helper method during initialization.
@@ -649,7 +653,60 @@ class HFLM(LM):
                 trust_remote_code=trust_remote_code,
                 use_fast=use_fast_tokenizer,
             )
+
+        self.has_chat_template = False
+        if apply_chat_template and self.tokenizer.chat_template is not None:
+            self.chat_type = None
+            for chat_type in ["system_user_assistant", "assistant_user", "user_assistant"]:
+                eval_logger.debug(f"Trying chat type {chat_type}")
+                try:
+                    self._apply_chat_template("test", [("test", "test"), ("test", "test")], description="test", chat_type=chat_type)
+                    self.chat_type = chat_type
+                    break
+                except Exception as e:
+                    eval_logger.debug(f"Chat type {chat_type} failed with exception {e}")
+                    pass
+            if self.chat_type is None:
+                eval_logger.warning("Chat template detected, but could not determine chat type. Disabling chat format")
+            else:
+                self.has_chat_template = True
+                eval_logger.info(f"Chat template detected, using chat type {self.chat_type}")
+
         return None
+    
+    def _apply_chat_template(self, 
+                            example: str,
+                            fewshots: Optional[List[Tuple[str, str]]] = None,
+                            description: str = None,
+                            add_generation_prompt: bool=True,
+                            tokenize: bool=False,
+                            chat_type: Optional[str] = None
+                            ) -> str:
+        
+        if chat_type is None:
+            chat_type = self.chat_type
+        if chat_type is None:
+            chat_type = "system_user_assistant"
+
+        chat_history = []
+        if description:
+            role = "system"
+            if chat_type == "assistant_user":
+                role = "assistant"
+            elif chat_type == "user_assistant":
+                role = "user"       
+            chat_history.append({"role": role, "content": description})
+        for i, shot in enumerate(fewshots):
+            q_shot, a_shot = shot
+            if i == 0 and chat_type == "user_assistant" and len(chat_history) == 1:
+                chat_history[0]["content"] += q_shot
+                chat_history.append({"role": "assistant", "content": a_shot})
+            else:
+                chat_history.append({"role": "user", "content": q_shot})
+                chat_history.append({"role": "assistant", "content": a_shot})
+        chat_history.append({"role": "user", "content": example})
+        
+        return self.tokenizer.apply_chat_template(chat_history, add_generation_prompt=add_generation_prompt, tokenize=tokenize)
 
     def _detect_batch_size_and_length(self, requests=None, pos: int = 0):
         """
@@ -718,7 +775,7 @@ class HFLM(LM):
         return batch_size, max_length
 
     def tok_encode(
-        self, string: str, left_truncate_len=None, add_special_tokens=None
+        self, string: str, ctx_data: dict=None, left_truncate_len=None, add_special_tokens=None
     ) -> List[int]:
         """ """
         if add_special_tokens is None:
@@ -726,6 +783,15 @@ class HFLM(LM):
                 add_special_tokens = False
             elif self.AUTO_MODEL_CLASS == transformers.AutoModelForSeq2SeqLM:
                 add_special_tokens = True
+
+        if ctx_data is not None and self.has_chat_template:
+            add_special_tokens = False
+            string = self._apply_chat_template(
+                example=ctx_data['example'],
+                fewshots=ctx_data["fewshots"],
+                description=ctx_data["description"],
+                tokenize=False,
+                add_generation_prompt=True)
 
         encoding = self.tokenizer.encode(string, add_special_tokens=add_special_tokens)
 
@@ -739,6 +805,7 @@ class HFLM(LM):
     def tok_batch_encode(
         self,
         strings: List[str],
+        ctx_data: Optional[List[dict]] = None,
         padding_side: str = "left",
         left_truncate_len: int = None,
         truncation: bool = False,
@@ -753,6 +820,20 @@ class HFLM(LM):
         #    add_special_tokens = True
         add_special_tokens = True
 
+        if ctx_data is not None and self.has_chat_template:
+            add_special_tokens = False
+            new_strings = []
+            for ctx in ctx_data:
+                new_strings.append(
+                    self._apply_chat_template(
+                        example=ctx["example"],
+                        fewshots=ctx["fewshots"],
+                        description=ctx["description"],
+                        tokenize=False,
+                        add_generation_prompt=True)
+                )
+            strings = new_strings
+        
         #count num of truncations and paddings:
         truncated = 0
         padded = 0
@@ -772,7 +853,7 @@ class HFLM(LM):
             elif len(seq) < max_seq_len:
                 padded += 1
 
-        has_initial_special_token = stats_encoding["special_tokens_mask"][0] == 1
+        has_initial_special_token = add_special_tokens and stats_encoding["special_tokens_mask"][0] == 1
 
         encoding = self.tokenizer(
             strings,
@@ -1169,8 +1250,22 @@ class HFLM(LM):
             "truncated": 0,
             "non_truncated": 0,
             "padded": 0,
-            "non_padded": 0
+            "non_padded": 0,
+            "has_chat_template": self.has_chat_template,
+            "chat_type": self.chat_type
         }
+
+        stats['n_gpus'] = self.gpus
+        stats['accelerate_num_process'] = None
+        if hasattr(self, "accelerator"):
+            stats['accelerate_num_process'] = self.accelerator.num_processes
+        stats["model_sha"] = str(self.model.config._commit_hash)
+        stats["model_dtype"] = str(self.model.dtype)
+        stats["model_memory_footprint"] = self.model.get_memory_footprint()
+        stats["model_num_parameters"] = self.model.num_parameters()
+        stats["model_is_loaded_in_4bit"] = self.model.is_loaded_in_4bit
+        stats["model_is_loaded_in_8bit"] = self.model.is_loaded_in_8bit
+        stats["model_device"] = str(self.model.device)
 
         def _collate(x):
             """Defines the key for the sorted method"""
@@ -1180,8 +1275,8 @@ class HFLM(LM):
             #   padded context length. this is useful to simplify the batching logic and more importantly to make
             #   automatic adaptive batches much much easier to implement
             # - any OOMs will happen right away rather than near the end
-            toks = self.tok_encode(x[0])
-            return -len(toks), x[0]
+            toks = self.tok_encode(x[0][0], ctx_data=x[1])
+            return -len(toks), x[0][0]
 
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
         if self.batch_size == "auto":
@@ -1204,12 +1299,17 @@ class HFLM(LM):
             else None
         )
 
+        stats["batch_size"] = batch_size
+        stats["max_length"] = self.max_length
+
         # we group requests by their generation_kwargs,
         # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
         # in the same batch.
-        re_ords = Collator([reg.args for reg in requests], _collate, grouping=True)
+        re_ords = Collator([(reg.args, reg.ctx_data) for reg in requests], _collate, grouping=True)
         chunks = re_ords.get_batched(n=batch_size, batch_fn=batch_fn)
-        for chunk in chunks:
+        for chunk_data in chunks:
+            # unpack the requests and kwargs for this batch
+            chunk, chunk_ctx_data = zip(*chunk_data)
             contexts, all_gen_kwargs = zip(*chunk)
             # we assume all gen kwargs in the batch are the same
             # this is safe to assume because the `grouper` object ensures it.
@@ -1248,6 +1348,7 @@ class HFLM(LM):
             # encode, pad, and truncate contexts for this batch
             context_enc, attn_masks, stat = self.tok_batch_encode(
                 contexts,
+                ctx_data=chunk_ctx_data,
                 left_truncate_len=max_ctx_len,
                 truncation=self.truncation,
             )

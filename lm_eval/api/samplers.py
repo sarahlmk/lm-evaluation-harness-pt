@@ -32,36 +32,36 @@ class ContextSampler:
         # TODO: should we just stop people from using fewshot from same split as evaluating?
         selected_docs = [x for x in fewshotex if x != doc][:num_fewshot]
 
+        shots = [
+            ((
+                self.doc_to_text(doc)
+                if (
+                    self.config.doc_to_choice is None
+                    or isinstance(self.doc_to_text(doc), str)
+                )
+                else self.doc_to_choice(doc)[self.doc_to_text(doc)]
+            ),(
+                str(self.doc_to_target(doc)[0])
+                if isinstance(self.doc_to_target(doc), list)
+                else self.doc_to_target(doc)
+                if (
+                    self.config.doc_to_choice is None
+                    or isinstance(self.doc_to_target(doc), str)
+                )
+                else str(self.doc_to_choice(doc)[self.doc_to_target(doc)])
+            ))
+            for doc in selected_docs
+        ]
+
         labeled_examples = (
             self.fewshot_delimiter.join(
-                [
-                    # TODO: is separating doc_to_text and doc_to_target by one space always desired?
-                    (
-                        self.doc_to_text(doc)
-                        if (
-                            self.config.doc_to_choice is None
-                            or isinstance(self.doc_to_text(doc), str)
-                        )
-                        else self.doc_to_choice(doc)[self.doc_to_text(doc)]
-                    )
-                    + self.target_delimiter
-                    + (
-                        str(self.doc_to_target(doc)[0])
-                        if isinstance(self.doc_to_target(doc), list)
-                        else self.doc_to_target(doc)
-                        if (
-                            self.config.doc_to_choice is None
-                            or isinstance(self.doc_to_target(doc), str)
-                        )
-                        else str(self.doc_to_choice(doc)[self.doc_to_target(doc)])
-                    )
-                    for doc in selected_docs
-                ]
+                # TODO: is separating doc_to_text and doc_to_target by one space always desired?
+                [shot[0] + self.target_delimiter + shot[1] for shot in shots]
             )
             + self.fewshot_delimiter
         )
 
-        return labeled_examples
+        return labeled_examples, shots
 
     def sample(self, n):
         """
