@@ -779,10 +779,11 @@ class HFLM(LM):
     ) -> List[int]:
         """ """
         if add_special_tokens is None:
-            if self.AUTO_MODEL_CLASS == transformers.AutoModelForCausalLM:
-                add_special_tokens = False
-            elif self.AUTO_MODEL_CLASS == transformers.AutoModelForSeq2SeqLM:
-                add_special_tokens = True
+            #if self.AUTO_MODEL_CLASS == transformers.AutoModelForCausalLM:
+            #    add_special_tokens = False
+            #elif self.AUTO_MODEL_CLASS == transformers.AutoModelForSeq2SeqLM:
+            #    add_special_tokens = True
+            add_special_tokens = True
 
         if ctx_data is not None and self.has_chat_template:
             add_special_tokens = False
@@ -793,12 +794,23 @@ class HFLM(LM):
                 tokenize=False,
                 add_generation_prompt=True)
 
-        encoding = self.tokenizer.encode(string, add_special_tokens=add_special_tokens)
+        string_tokenized = self.tokenizer(
+            [string],
+            add_special_tokens=add_special_tokens,
+            return_special_tokens_mask=True
+        )
 
+        has_initial_special_token = add_special_tokens and encoding["special_tokens_mask"][0][0] == 1
+        encoding = string_tokenized["input_ids"][0]
+        
         # left-truncate the encoded context to be at most `left_truncate_len` tokens long
         if left_truncate_len:
-
-            encoding = encoding[-left_truncate_len:]
+            if has_initial_special_token:
+                special_token = encoding[0]
+                encoding = encoding[1:]
+            encoding = encoding[-left_truncate_len+int(has_initial_special_token):]
+            if has_initial_special_token:
+                encoding = [special_token] + encoding
 
         return encoding
 
@@ -835,8 +847,9 @@ class HFLM(LM):
             strings = new_strings
         
         #count num of truncations and paddings:
-        truncated = 0
-        padded = 0
+        truncated = []
+        padded = []
+        src_seq_length = []
 
         stats_encoding = self.tokenizer(
             strings,
@@ -847,13 +860,13 @@ class HFLM(LM):
             return_special_tokens_mask=True
         )
         max_seq_len = min(max([len(seq) for seq in stats_encoding["input_ids"]]), left_truncate_len)
-        for seq in stats_encoding["input_ids"]:
-            if len(seq) > left_truncate_len:
-                truncated += 1
-            elif len(seq) < max_seq_len:
-                padded += 1
-
-        has_initial_special_token = add_special_tokens and stats_encoding["special_tokens_mask"][0] == 1
+        for i, seq in enumerate(stats_encoding["input_ids"]):
+            truncated.append(len(seq) > left_truncate_len)
+            padded.append(len(seq) < max_seq_len)
+            src_seq_length.append(len(seq))
+        src_text = self.tokenizer.batch_decode(stats_encoding["input_ids"])
+            
+        has_initial_special_token = add_special_tokens and stats_encoding["special_tokens_mask"][0][0] == 1
 
         encoding = self.tokenizer(
             strings,
@@ -880,11 +893,24 @@ class HFLM(LM):
             if has_initial_special_token:
                 encoding["input_ids"] = torch.cat((special_input_ids, encoding["input_ids"]), -1)
                 encoding["attention_mask"] = torch.cat((special_attention_mask, encoding["attention_mask"]), -1)
-            
+        
+        tokenized_text = self.tokenizer.batch_decode(encoding["input_ids"])
+        tokenized_seq_length = [len(seq) for seq in encoding["input_ids"]]
         self.tokenizer.padding_side = old_padding_side
+        
+        stats = []
+        # convert list truncated, padded, src_seq_length, src_text, tokenized_seq_length, tokenized_text to one list of dicts
+        for i in range(len(truncated)):
+            stats.append({
+                "src_text": src_text[i],
+                "src_seq_length": src_seq_length[i],
+                "tokenized_was_truncated": truncated[i],
+                "tokenized_was_padded": padded[i],
+                "tokenized_text": tokenized_text[i],
+                "tokenized_seq_length": tokenized_seq_length[i],
+            })
 
-
-        return encoding["input_ids"], encoding["attention_mask"], {"truncated": truncated, "padded": padded}
+        return encoding["input_ids"], encoding["attention_mask"], stats
 
     def tok_decode(self, tokens):
         if self.AUTO_MODEL_CLASS == transformers.AutoModelForCausalLM:
@@ -1246,7 +1272,8 @@ class HFLM(LM):
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
         res = []
-        stats = {
+        stats = []
+        meta = {
             "truncated": 0,
             "non_truncated": 0,
             "padded": 0,
@@ -1255,17 +1282,18 @@ class HFLM(LM):
             "chat_type": self.chat_type
         }
 
-        stats['n_gpus'] = self.gpus
-        stats['accelerate_num_process'] = None
+        meta['n_gpus'] = self.gpus
+        meta['accelerate_num_process'] = None
         if hasattr(self, "accelerator"):
-            stats['accelerate_num_process'] = self.accelerator.num_processes
-        stats["model_sha"] = str(self.model.config._commit_hash)
-        stats["model_dtype"] = str(self.model.dtype)
-        stats["model_memory_footprint"] = self.model.get_memory_footprint()
-        stats["model_num_parameters"] = self.model.num_parameters()
-        stats["model_is_loaded_in_4bit"] = self.model.is_loaded_in_4bit
-        stats["model_is_loaded_in_8bit"] = self.model.is_loaded_in_8bit
-        stats["model_device"] = str(self.model.device)
+            meta['accelerate_num_process'] = self.accelerator.num_processes
+        meta["model_sha"] = str(self.model.config._commit_hash)
+        meta["model_dtype"] = str(self.model.dtype)
+        meta["model_memory_footprint"] = self.model.get_memory_footprint()
+        meta["model_num_parameters"] = self.model.num_parameters()
+        meta["model_is_loaded_in_4bit"] = getattr(self.model, 'is_loaded_in_4bit', None)
+        meta["model_is_loaded_in_8bit"] = getattr(self.model, 'is_loaded_in_8bit', None)
+        meta["model_is_quantized"] = getattr(self.model, 'is_quantized', None)
+        meta["model_device"] = str(self.model.device)
 
         def _collate(x):
             """Defines the key for the sorted method"""
@@ -1299,8 +1327,8 @@ class HFLM(LM):
             else None
         )
 
-        stats["batch_size"] = batch_size
-        stats["max_length"] = self.max_length
+        meta["batch_size"] = batch_size
+        meta["max_length"] = self.max_length
 
         # we group requests by their generation_kwargs,
         # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
@@ -1345,8 +1373,11 @@ class HFLM(LM):
                 # max len for inputs = encoder's whole max_length
                 max_ctx_len = self.max_length
 
+            meta["max_ctx_length"] = max_ctx_len
+            meta["max_gen_toks"] = max_gen_toks
+
             # encode, pad, and truncate contexts for this batch
-            context_enc, attn_masks, stat = self.tok_batch_encode(
+            context_enc, attn_masks, batch_stat = self.tok_batch_encode(
                 contexts,
                 ctx_data=chunk_ctx_data,
                 left_truncate_len=max_ctx_len,
@@ -1355,10 +1386,12 @@ class HFLM(LM):
             context_enc = context_enc.to(self.device)
             attn_masks = attn_masks.to(self.device)
 
-            stats["truncated"] += stat["truncated"]
-            stats["padded"] += stat["padded"]
-            stats["non_truncated"] += len(contexts) - stat["truncated"]
-            stats["non_padded"] += len(contexts) - stat["padded"]
+            n_truncated = sum([s["tokenized_was_truncated"] for s in batch_stat])
+            n_padded = sum([s["tokenized_was_padded"] for s in batch_stat])
+            meta["truncated"] += n_truncated
+            meta["padded"] += n_padded
+            meta["non_truncated"] += len(contexts) - n_truncated
+            meta["non_padded"] += len(contexts) - n_padded
            
             if "max_length" not in kwargs:
                 kwargs["max_length"] = context_enc.shape[1] + max_gen_toks
@@ -1372,7 +1405,7 @@ class HFLM(LM):
             )
 
             cont_toks_list = cont.tolist()
-            for cont_toks, context in zip(cont_toks_list, contexts):
+            for cont_toks, context, stat in zip(cont_toks_list, contexts, batch_stat):
                 # discard context + left-padding toks if using causal decoder-only LM
                 if self.AUTO_MODEL_CLASS == transformers.AutoModelForCausalLM:
                     cont_toks = cont_toks[context_enc.shape[1] :]
@@ -1387,12 +1420,16 @@ class HFLM(LM):
                         s = s.split(term)[0]
 
                 res.append(s)
+                stat['max_ctx_length'] = max_ctx_len
+                stat['max_gen_toks'] = max_gen_toks
+                stats.append(stat)
 
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), s)
                 pbar.update(1)
         # reorder this group of results back to original unsorted form
         res = re_ords.get_original(res)
+        stats = re_ords.get_original(stats)
 
         pbar.close()
 
-        return res, stats
+        return res, stats, meta

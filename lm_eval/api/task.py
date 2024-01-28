@@ -82,6 +82,7 @@ class TaskConfig(dict):
     doc_to_decontamination_query: str = None
     take_first_n: int = None
     take_last_n: int = None
+    limit: int = None
 
     metadata: Union[
         str, list
@@ -340,6 +341,11 @@ class Task(abc.ABC):
             assert False, f"Task dataset (path={self.DATASET_PATH}, name={self.DATASET_NAME}) must have valid or test docs!"
 
         eval_logger.info(f"Building contexts for task on rank {rank}...")
+
+        if limit is None:
+            limit = self.config.limit
+        
+        self.limit = limit
 
         instances = []
         for doc_id, doc in utils.create_iterator(
@@ -638,10 +644,12 @@ class ConfigurableTask(Task):
                     self._higher_is_better[metric_name] = is_higher_better(metric_name)
 
         self.download(self.config.dataset_kwargs)
+
+        task_split = self.config.test_split if self.config.test_split is not None else self.config.validation_split
         if self.config.take_first_n is not None:
-            self.dataset['test'] = self.dataset['test'].select(list(range(self.config.take_first_n)))
+            self.dataset[task_split] = self.dataset[task_split].select(list(range(self.config.take_first_n)))
         if self.config.take_last_n is not None:
-            self.dataset['test'] = self.dataset['test'].select(list(range(len(self.dataset['test']) - self.config.take_last_n, len(self.dataset['test']))))
+            self.dataset[task_split] = self.dataset[task_split].select(list(range(len(self.dataset[task_split]) - self.config.take_last_n, len(self.dataset[task_split]))))
         self._training_docs = None
         self._fewshot_docs = None
 

@@ -234,6 +234,10 @@ def evaluate(
     task_hierarchy = collections.defaultdict(list)
     # store num-fewshot value per task
     num_fewshot = collections.defaultdict(int)
+    # tracks model processing of all evaluations
+    model_meta = {}
+    # tracks model processing of each task
+    task_model_meta = collections.defaultdict(dict)
 
     # get lists of each type of request
     for task_name, task in task_dict.items():
@@ -276,7 +280,7 @@ def evaluate(
             else:
                 raise RuntimeError("Task has neither test_docs nor validation_docs")
             limit = int(len(task_docs) * limit) if limit < 1.0 else int(limit)
-
+        
         task.build_all_requests(limit=limit, rank=lm.rank, world_size=lm.world_size)
 
         eval_logger.debug(
@@ -310,7 +314,6 @@ def evaluate(
 
     ### Run LM on inputs, get all outputs ###
     # execute each type of request
-    accumulated_stats = {}
     for reqtype, reqs in requests.items():
         eval_logger.info("Running {} requests".format(reqtype))
         # create `K` copies of each request `req` based off `K = req.repeats`
@@ -324,19 +327,25 @@ def evaluate(
 
         # run requests through model
         resps = getattr(lm, reqtype)(cloned_reqs)
-        stats = {}
-        if isinstance(resps, tuple) and len(resps) == 2:
-            resps, stats = resps
+        ins_metas = []
+        meta = {}
+        if isinstance(resps, tuple) and len(resps) == 3:
+            resps, ins_metas, meta = resps
         
-        for k, v in stats.items():
-            if k not in accumulated_stats:
-                accumulated_stats[k] = v
+        for k, v in meta.items():
+            if k not in model_meta:
+                model_meta[k] = v
             else:
-                accumulated_stats[k] += v
+                if k in ['truncated', 'non_truncated', 'padded', 'non_padded']:
+                    model_meta[k] += v
+                elif v is not None:
+                    model_meta[k] = v
 
         # put responses from model into a list of length K for each request.
-        for x, req in zip(resps, cloned_reqs):
+        for i, (x, req) in enumerate(zip(resps, cloned_reqs)):
             req.resps.append(x)
+            if len(ins_metas) > 0:
+                req.model_data = ins_metas[i]
 
         if lm.world_size > 1:
             lm.accelerator.wait_for_everyone()
@@ -364,11 +373,11 @@ def evaluate(
         for key in task.instances[0].filtered_resps.keys():
             doc_iterator = (
                 itertools.islice(
-                    enumerate(task.test_docs()), lm.rank, limit, lm.world_size
+                    enumerate(task.test_docs()), lm.rank, getattr(task, 'limit', limit), lm.world_size
                 )
                 if task.has_test_docs()
                 else itertools.islice(
-                    enumerate(task.validation_docs()), lm.rank, limit, lm.world_size
+                    enumerate(task.validation_docs()), lm.rank, getattr(task, 'limit', limit), lm.world_size
                 )
             )
             for doc_id, doc in doc_iterator:
@@ -378,18 +387,23 @@ def evaluate(
                 metrics = task.process_results(
                     doc, [req.filtered_resps[key] for req in requests]
                 )
-                if log_samples:
-                    target = task.doc_to_target(doc)
-                    example = {
-                        "doc_id": doc_id,
-                        "doc": doc,
-                        "target": target,
-                        "arguments": [req.args for req in requests],
-                        "resps": [req.resps for req in requests],
-                        "filtered_resps": [req.filtered_resps[key] for req in requests],
-                    }
-                    example.update(metrics)
-                    samples[task_name].append(example)
+                #if log_samples:
+                target = task.doc_to_target(doc)
+                example = {
+                    "doc_id": doc_id,
+                    "doc": doc,
+                    "arguments": [req.args for req in requests]
+                }
+                req = requests[0]
+                if req.model_data is not None:
+                    example.update(req.model_data)
+                example.update({
+                    "target": target,
+                    "resps": [req.resps for req in requests],
+                    "filtered_resps": [req.filtered_resps[key] for req in requests],
+                })
+                example.update(metrics)
+                samples[task_name].append(example)
                 for metric, value in metrics.items():
                     vals[(task_name, key, metric)].append(value)
 
@@ -447,6 +461,33 @@ def evaluate(
     if lm.rank == 0:
 
         ### Aggregate results over all datapoints ###
+        
+        # agregate model metadata
+        for task_name, task_samples in samples.items():
+            task_model_meta[task_name] = {
+                "sample_size": len(task_samples)
+            }
+
+            if len(task_samples) > 0 and 'tokenized_was_truncated' in task_samples[0]:
+                
+                task_model_meta[task_name]["truncated"] = 0
+                task_model_meta[task_name]["non_truncated"] = 0
+                task_model_meta[task_name]["padded"] = 0
+                task_model_meta[task_name]["non_padded"] = 0
+                src_lens = []
+
+                for sample in task_samples:
+                    task_model_meta[task_name]["truncated"] += int(sample["tokenized_was_truncated"])
+                    task_model_meta[task_name]["non_truncated"] += 1 - int(sample["tokenized_was_truncated"])
+                    task_model_meta[task_name]["padded"] += int(sample["tokenized_was_padded"])
+                    task_model_meta[task_name]["non_padded"] += 1 - int(sample["tokenized_was_padded"])
+                    src_lens.append(sample["src_seq_length"])
+                task_model_meta[task_name]["mean_seq_length"] = sum(src_lens)/len(src_lens)
+                task_model_meta[task_name]["min_seq_length"] = min(src_lens)
+                task_model_meta[task_name]["max_seq_length"] = max(src_lens)
+                task_model_meta[task_name]["max_ctx_length"] = sample["max_ctx_length"]
+                task_model_meta[task_name]["max_gen_toks"] = sample["max_gen_toks"]
+
         # aggregate results ; run bootstrap CIs
         for (task_name, key, metric), items in vals.items():
             task = task_dict[task_name]
@@ -615,7 +656,8 @@ def evaluate(
             "configs": dict(sorted(configs.items())),
             "versions": dict(sorted(versions.items())),
             "n-shot": dict(sorted(num_fewshot.items())),
-            'stats': accumulated_stats
+            'model_meta': model_meta,
+            'task_model_meta': dict(task_model_meta.items()),
         }
         if log_samples:
             results_dict["samples"] = dict(samples)
