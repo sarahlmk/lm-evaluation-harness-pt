@@ -1,5 +1,5 @@
 import re
-
+from unidecode import unidecode
 from lm_eval.api.filter import Filter
 
 
@@ -60,3 +60,33 @@ class WhitespaceFilter(Filter):
         filtered_resps = [filter_set(resp) for resp in resps]
 
         return filtered_resps
+
+class RemoveAccentsFilter(Filter):   
+        def __init__(self) -> None:
+            pass
+    
+        def remove_accents(self, text):
+            return unidecode(text)
+    
+        def apply(self, resps, docs) -> None:
+            def filter_set(inst):
+                return [self.remove_accents(resp) for resp in inst]
+            return [filter_set(resp) for resp in resps]
+
+class RemovePunctuationFilter(Filter):
+
+    pattern_clean = re.compile(r'(?u)[^a-z^A-Z^0-9^\sãáàâäăẽéèêëęĩíìîïõóòôöũúùûüç]', re.UNICODE | re.IGNORECASE)
+
+    def __init__(self) -> None:
+        pass
+    
+    def remove_punctuation(self, text):
+        #Remove everything that is not a letter (punctuation, brackets, etc..)
+        text = re.sub(self.pattern_clean, '', text)
+
+        return text
+
+    def apply(self, resps, docs) -> None:
+        def filter_set(inst):
+            return [self.remove_punctuation(resp) for resp in inst]
+        return [filter_set(resp) for resp in resps]

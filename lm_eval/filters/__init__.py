@@ -2,7 +2,8 @@ from lm_eval.api.filter import FilterEnsemble
 from . import selection
 from . import extraction
 from . import transformation
-
+from . import decontamination
+from . import custom
 
 FILTER_REGISTRY = {
     "take_first": selection.TakeFirstFilter,
@@ -13,6 +14,11 @@ FILTER_REGISTRY = {
     "lowercase": transformation.LowercaseFilter,
     "uppercase": transformation.UppercaseFilter,
     "map": transformation.MapFilter,
+    "normalize_spaces": decontamination.NormalizeSpacesFilter,
+    "remove_accents": extraction.RemoveAccentsFilter,
+    "remove_punctuation": extraction.RemovePunctuationFilter,
+    "find_choices": custom.ChoicesFilter,
+    "find_similar_label": custom.SimilarLabelFilter,
     # TODO: implement this filter. either it should take in an arbitrary "scoring"/reward function
     # that takes an input and returns a scalar and then should select the max reward,
     # or should implement different filters for different ways of handling a reward model's inference.
