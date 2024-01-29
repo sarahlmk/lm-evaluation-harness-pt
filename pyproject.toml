@@ -36,7 +36,8 @@ dependencies = [
     "tqdm-multiprocess",
     "transformers>=4.1",
     "zstandard",
-    "textdistance>=4.6.1"
+    "textdistance",
+    "unidecode"
 ]
 
 [tool.setuptools.packages.find]

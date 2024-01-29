@@ -695,16 +695,16 @@ class HFLM(LM):
                 role = "assistant"
             elif chat_type == "user_assistant":
                 role = "user"       
-            chat_history.append({"role": role, "content": description})
+            chat_history.append({"role": role, "content": description.strip()})
         for i, shot in enumerate(fewshots):
             q_shot, a_shot = shot
             if i == 0 and chat_type == "user_assistant" and len(chat_history) == 1:
-                chat_history[0]["content"] += q_shot
-                chat_history.append({"role": "assistant", "content": a_shot})
+                chat_history[0]["content"] += "\n\n" + q_shot.strip()
+                chat_history.append({"role": "assistant", "content": a_shot.strip()})
             else:
-                chat_history.append({"role": "user", "content": q_shot})
-                chat_history.append({"role": "assistant", "content": a_shot})
-        chat_history.append({"role": "user", "content": example})
+                chat_history.append({"role": "user", "content": q_shot.strip()})
+                chat_history.append({"role": "assistant", "content": a_shot.strip()})
+        chat_history.append({"role": "user", "content": example.strip()})
         
         return self.tokenizer.apply_chat_template(chat_history, add_generation_prompt=add_generation_prompt, tokenize=tokenize)
 
