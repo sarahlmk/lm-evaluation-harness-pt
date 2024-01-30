@@ -2,10 +2,15 @@ group:
   - pt_benchmark
 dataset_path: eduagarcia/enem_challenge
 task: enem_challenge
-test_split: test
-fewshot_split: fewshot
+test_split: train
+fewshot_split: train
 fewshot_config:
-  sampler: first_n
+  sampler: id_sampler
+  sampler_config:
+    # Few-shots from https://github.com/piresramon/gpt-4-enem/blob/main/lm_eval/tasks/enem.py
+    id_list: ["2022_21", "2022_88", "2022_143"]
+    id_column: id
+    exclude_from_task: true
 num_fewshot: 3
 description: "As perguntas a seguir são questões de multipla escolha do Exame Nacional\
   \ do Ensino Médio (ENEM), reponda apenas com as letras A, B, C, D e ou E.\n\n"

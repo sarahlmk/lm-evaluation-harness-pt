@@ -648,13 +648,9 @@ class ConfigurableTask(Task):
 
         self.download(self.config.dataset_kwargs)
 
-        task_split = self.config.test_split if self.config.test_split is not None else self.config.validation_split
-        if self.config.take_first_n is not None:
-            self.dataset[task_split] = self.dataset[task_split].select(list(range(self.config.take_first_n)))
-        if self.config.take_last_n is not None:
-            self.dataset[task_split] = self.dataset[task_split].select(list(range(len(self.dataset[task_split]) - self.config.take_last_n, len(self.dataset[task_split]))))
         self._training_docs = None
         self._fewshot_docs = None
+        self.task_docs = None
 
         if self.config.filter_list is not None:
             self._filters = []
@@ -681,12 +677,19 @@ class ConfigurableTask(Task):
         else:
             self.prompt = None
 
+        self.sampler = None
         if self.fewshot_docs() is not None:
+            fewshot_config = self.config.fewshot_config if self.config.fewshot_config is not None else {}
             self.sampler = samplers.get_sampler(
-                self.config.fewshot_config.get("sampler", "default")
-                if self.config.fewshot_config
-                else "default"
-            )(list(self.fewshot_docs()), self, rnd=random.Random(1234))
+                fewshot_config.get("sampler", "default")
+            )(
+                docs_dataset=self.fewshot_docs(),
+                task=self, rnd=random.Random(1234),
+                **fewshot_config.get("sampler_config", {})
+            )
+
+            self._fewshot_docs = self.sampler.docs_dataset
+            self._training_docs = self._fewshot_docs
 
         if self.has_test_docs():
             self.task_docs = self.test_docs()
@@ -694,6 +697,20 @@ class ConfigurableTask(Task):
             self.task_docs = self.validation_docs()
         else:
             assert False, f"Task dataset (path={self.DATASET_PATH}, name={self.DATASET_NAME}) must have valid or test docs!"
+
+        if self.config.take_first_n is not None:
+            self.task_docs = self.task_docs.select(list(range(self.config.take_first_n)))
+        if self.config.take_last_n is not None:
+            self.task_docs = self.task_docs.select(list(range(len(self.task_docs) - self.config.take_last_n, len(self.task_docs))))
+
+        if self.sampler is not None:
+            if self.sampler.exclude_from_task:
+                eval_logger.info("Eliminating fewshot examples from task docs")
+                orig_num_docs = len(self.task_docs)
+                self.task_docs = self.sampler.remove_fewshot_from_task(self.task_docs)
+                eval_logger.info(
+                    f"Eliminated {orig_num_docs - len(self.task_docs)} fewshot docs from original task docs"
+                )
 
         # Test One Doc
         self.features = list(self.task_docs.features.keys())
@@ -754,6 +771,8 @@ class ConfigurableTask(Task):
         )
 
     def has_training_docs(self) -> bool:
+        if self._training_docs is not None:
+            return True
         if self.config.training_split is not None:
             return True
         else:
@@ -766,12 +785,16 @@ class ConfigurableTask(Task):
             return False
 
     def has_test_docs(self) -> bool:
+        if self.task_docs is not None:
+            return True
         if self.config.test_split is not None:
             return True
         else:
             return False
 
     def training_docs(self) -> datasets.Dataset:
+        if self._training_docs is not None:
+            return self._training_docs
         if self.has_training_docs():
             if self.config.process_docs is not None:
                 return self.config.process_docs(
@@ -788,12 +811,16 @@ class ConfigurableTask(Task):
             return self.dataset[self.config.validation_split]
 
     def test_docs(self) -> datasets.Dataset:
+        if self.task_docs is not None:
+            return self.task_docs
         if self.has_test_docs():
             if self.config.process_docs is not None:
                 return self.config.process_docs(self.dataset[self.config.test_split])
             return self.dataset[self.config.test_split]
 
     def fewshot_docs(self):
+        if self._fewshot_docs is not None:
+            return self._fewshot_docs
         if self.config.fewshot_split is not None:
             if self.config.process_docs is not None:
                 return self.config.process_docs(self.dataset[self.config.fewshot_split])

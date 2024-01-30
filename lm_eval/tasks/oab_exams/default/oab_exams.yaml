@@ -1,12 +1,17 @@
 group:
   - legal_benchmark
   - pt_benchmark
-dataset_path: eduagarcia-temp/oab_exams_no_train # a copy of `eduagarcia/oab_exams` with few-shot dev split
+dataset_path: eduagarcia/oab_exams
 task: oab_exams
-test_split: test
-fewshot_split: validation
+test_split: train
+fewshot_split: train
 fewshot_config:
-  sampler: first_n
+  sampler: id_sampler
+  sampler_config:
+    # One question for each type (max 15 few-shot)
+    id_list: ["2010-01_1", "2010-01_11", "2010-01_13", "2010-01_23", "2010-01_26", "2010-01_28", "2010-01_38", "2010-01_48", "2010-01_58", "2010-01_68", "2010-01_76", "2010-01_83", "2010-01_85", "2010-01_91", "2010-01_99"]
+    id_column: id
+    exclude_from_task: true
 num_fewshot: 3
 description: "As perguntas a seguir são questões de multipla escolha do Exame de Ordem da\
   \ Ordem dos Advogados do Brasil (OAB), reponda apenas com as letras A, B, C ou D.\n\n"
@@ -38,4 +43,4 @@ metric_list:
     aggregation: acc
     higher_is_better: true
 metadata:
-  version: 1.3
+  version: 1.4

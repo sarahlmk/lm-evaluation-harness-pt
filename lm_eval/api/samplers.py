@@ -1,5 +1,13 @@
 class ContextSampler:
-    def __init__(self, docs, task, fewshot_indices=None, rnd=None) -> None:
+    def __init__(
+            self,
+            docs_dataset,
+            task,
+            fewshot_indices=None,
+            rnd=None,
+            exclude_from_task=False,
+            id_column = None
+        ) -> None:
         self.rnd = rnd
         assert self.rnd, "must pass rnd to FewShotSampler!"
 
@@ -13,17 +21,27 @@ class ContextSampler:
         self.doc_to_target = self.task.doc_to_target
         self.doc_to_choice = self.task.doc_to_choice
 
-        self.docs = docs  # HF dataset split, provided by task._fewshot_docs()
+        self.docs_dataset = docs_dataset  # HF dataset split, provided by task._fewshot_docs()
+        self.fewshot_indices = fewshot_indices
         if fewshot_indices:  # subset few-shot docs from
-            self.docs = self.docs.select(fewshot_indices)
+            self.docs_dataset = self.docs_dataset.select(fewshot_indices)
 
+        self.id_column = id_column
+        if self.id_column not in self.docs_dataset.column_names:
+            if isinstance(self.id_column, int):
+                self.id_column = self.docs_dataset.column_names[self.id_column]
+
+        self.exclude_from_task = exclude_from_task
+        self.docs = list(self.docs_dataset)
+    
     def get_context(self, doc, num_fewshot):
         # draw an extra fewshot sample if using same split as evaluating on
-        n_samples = (
-            num_fewshot + 1
-            if self.config.fewshot_split == self.config.test_split
-            else num_fewshot
-        )
+        #n_samples = (
+        #    num_fewshot + 1
+        #    if self.config.fewshot_split == self.config.test_split
+        #    else num_fewshot
+        #)
+        n_samples = num_fewshot
 
         # draw `n_samples` docs from fewshot_docs
         fewshotex = self.sample(n_samples)
@@ -69,7 +87,16 @@ class ContextSampler:
         """
 
         return self.rnd.sample(self.docs, n)
-
+    
+    def remove_fewshot_from_task(self, dataset):
+        if self.id_column in dataset.column_names:
+            fewshot_ids = self.docs_dataset[self.id_column]
+            return dataset.filter(lambda x: x[self.id_column] not in fewshot_ids)
+        elif self.fewshot_indices is not None:
+            to_select = [i for i in range(len(dataset)) if i not in self.fewshot_indices]
+            return dataset.select(to_select)
+        else:
+            raise ValueError("Cannot remove fewshot from task without fewshot_indices or id_column")
 
 class FirstNSampler(ContextSampler):
     def sample(self, n) -> None:
@@ -92,16 +119,30 @@ class BalancedSampler(ContextSampler):
 
         pass
 
-
 class ManualSampler(ContextSampler):
     def sample(self, n) -> None:
         """ """
         pass
 
+class DocIDSampler(FirstNSampler):
+    def __init__(
+            self,
+            id_list,
+            **kwargs
+        ):
+        super().__init__(**kwargs)
+        self.id_list = id_list
+        assert self.id_column, "Must specify id_column for DocIDSampler"
+        self.docs_dataset = self.docs_dataset.filter(lambda x: x[self.id_column] in self.id_list)
+        self.docs = list(self.docs_dataset)
 
+    def remove_fewshot_from_task(self, dataset):
+        return dataset.filter(lambda x: x[self.id_column] not in self.id_list)
+        
 SAMPLER_REGISTRY = {
     "default": ContextSampler,
     "first_n": FirstNSampler,
+    "id_sampler": DocIDSampler
 }
 
 
