@@ -20,29 +20,25 @@ class ChoicesFilter(Filter):
         if regex_patterns is None:
             choices_text = "".join(choices)
             regex_patterns = [
-                rf'([Ll]etra |[Aa]lternativa |[Rr]esposta: ||[Rr]esposta [Cc]orreta: |[Rr]esposta [Cc]orreta e |[Oo]pcao )([{choices_text}])'
+                fr"(?:[Ll]etra|[Aa]lternativa|[Rr]esposta|[Rr]esposta [Cc]orreta|[Rr]esposta[Cc]orreta e|[Oo]pcao):? ([{choices_text}])\b",
+                fr"\b([{choices_text}]) ?[.):-]",
+                fr"\b([{choices_text}])$",
+                fr"\b([{choices_text}])\b"
             ]
-
+        else:
+            regex_patterns = [re.compile(regex) for regex in regex_patterns]
         self.regex_patterns = regex_patterns
 
     def process_resp(self, text):
         text = text.strip()
 
-        for alternativa in self.choices:
-            for suffix in ['.', ')', '-', ':']:
-                if text.startswith(alternativa + suffix):
-                    return alternativa
-                if text.startswith(alternativa + " " + suffix):
-                    return alternativa
+        if text in self.choices:
+            return text
 
         for regex in self.regex_patterns:
             match = re.search(regex, text)
             if match:
-                return match.group(2)
-        
-        for i, alternativa in enumerate(self.choices_lower):
-            if alternativa in text[:len(alternativa)].lower():
-                return self.choices[i]
+                return match.group(1)
             
         return self.fallback
 
@@ -68,13 +64,18 @@ class SimilarLabelFilter(Filter):
         if prediction in norm_label:
             return self.labels[norm_label.index(prediction)]
         
-        # Only works if there diferent enough labels
-        #for label in norm_label:
-        #    if prediction[:len(label)] == label:
-        #        return self.labels[norm_label.index(label)]
-        
         if prediction == "":
             return self.fallback
+        
+        # Check if there is only one match
+        count_matches = 0
+        last_match = self.fallback
+        for label in norm_label:
+            if label in prediction:
+                count_matches += 1
+                last_match = label
+        if count_matches == 1:
+            return self.labels[norm_label.index(last_match)]
         
         get_text_until = ['.', ',', ';', ':', '(', ')', '[', ']', '\n']
         for split_char in get_text_until:

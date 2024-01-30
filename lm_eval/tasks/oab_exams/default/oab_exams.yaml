@@ -27,11 +27,15 @@ filter_list:
       - function: find_choices
         choices: ["A", "B", "C", "D"]
         regex_patterns: 
-          - "([Ll]etra |[Aa]lternativa |[Rr]esposta: ||[Rr]esposta [Cc]orreta: |[Rr]esposta [Cc]orreta e |[Oo]pcao )([ABCD])"
+          - "(?:[Ll]etra|[Aa]lternativa|[Rr]esposta|[Rr]esposta [Cc]orreta|[Rr]esposta[Cc]orreta e|[Oo]pcao):? ([ABCD])\\b"
+          - "\\b([ABCD])\\)"          
+          - "\\b([ABCD]) ?[.):-]"
+          - "\\b([ABCD])$"
+          - "\\b([ABCD])\\b"
       - function: take_first
 metric_list:
   - metric: acc
     aggregation: acc
     higher_is_better: true
 metadata:
-  version: 1.2
+  version: 1.3
