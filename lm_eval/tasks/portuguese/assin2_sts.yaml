@@ -29,7 +29,7 @@ filter_list:
         range_min: 0.0
         range_max: 5.0
         on_outside_range: "clip"
-        fallback: 0.0
+        fallback: 5.0
       - function: take_first
 metric_list:
   - metric: pearson
