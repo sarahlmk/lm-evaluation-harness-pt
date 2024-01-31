@@ -37,7 +37,8 @@ dependencies = [
     "transformers>=4.1",
     "zstandard",
     "textdistance",
-    "unidecode"
+    "unidecode",
+    "scipy"
 ]
 
 [tool.setuptools.packages.find]
