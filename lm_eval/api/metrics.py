@@ -7,6 +7,7 @@ import evaluate
 import numpy as np
 import sacrebleu
 import sklearn.metrics
+import scipy.stats
 
 from lm_eval.api.registry import register_aggregation, register_metric
 
@@ -76,6 +77,22 @@ def matthews_corrcoef(items):
     preds = unzipped_list[1]
     # print(preds)
     return sklearn.metrics.matthews_corrcoef(golds, preds)
+
+@register_aggregation("pearsonr")
+def pearsonr(items):
+    unzipped_list = list(zip(*items))
+    golds = unzipped_list[0]
+    preds = unzipped_list[1]
+
+    return scipy.stats.pearsonr(golds, preds).statistic
+
+@register_aggregation("mean_squared_error")
+def mean_squared_error(items):
+    unzipped_list = list(zip(*items))
+    golds = unzipped_list[0]
+    preds = unzipped_list[1]
+    # print(preds)
+    return sklearn.metrics.mean_squared_error(golds, preds)
 
 
 @register_aggregation("bleu")
@@ -233,6 +250,23 @@ def mean_stderr(arr):
 def mcc_fn(items):  # This is a passthrough function
     return items
 
+@register_metric(
+    metric="pearson",
+    higher_is_better=True,
+    output_type="multiple_choice",
+    aggregation="pearsonr",
+)
+def pearson_fn(items):  # This is a passthrough function
+    return items
+
+@register_metric(
+    metric="mse",
+    higher_is_better=False,
+    output_type="multiple_choice",
+    aggregation="mean_squared_error",
+)
+def mse_fn(items):  # This is a passthrough function
+    return items
 
 @register_metric(
     metric="f1",
@@ -423,6 +457,8 @@ def stderr_for_metric(metric, bootstrap_iters):
     bootstrappable = [
         median,
         matthews_corrcoef,
+        pearsonr,
+        mse_fn,
         f1_score,
         f1_macro_score,
         acc_score,

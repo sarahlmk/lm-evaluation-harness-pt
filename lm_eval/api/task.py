@@ -1193,6 +1193,8 @@ class ConfigurableTask(Task):
             elif self.multiple_target:
                 gold = list(gold)
             elif type(gold) != type(result):
+                if type(result) == float:
+                    gold = gold.replace(',','.')
                 # cast gold to the same type as result
                 gold = type(result)(gold)
 

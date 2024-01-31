@@ -74,7 +74,7 @@ class ContextSampler:
         labeled_examples = (
             self.fewshot_delimiter.join(
                 # TODO: is separating doc_to_text and doc_to_target by one space always desired?
-                [shot[0] + self.target_delimiter + shot[1] for shot in shots]
+                [shot[0] + self.target_delimiter + str(shot[1]) for shot in shots]
             )
             + self.fewshot_delimiter
         )

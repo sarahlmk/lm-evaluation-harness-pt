@@ -99,3 +99,74 @@ class SimilarLabelFilter(Filter):
         def filter_set(inst):
             return [self.process_resp(resp) for resp in inst]
         return [filter_set(resp) for resp in resps]
+    
+class NumberFilter(Filter):
+    def __init__(
+            self,
+            type="int",
+            range_min=-float("inf"),
+            range_max=float("inf"),
+            on_outside_range = "fallback",
+            fallback=-1,
+        ) -> None:
+        if type == "int":
+            self.type = int
+        elif type == "float":
+            self.type = float
+        else:
+            raise ValueError(f"Invalid number type {type}. Must be int or float.")
+        self.range_min = range_min
+        self.range_max = range_max
+        self.on_outside_range = on_outside_range
+        self.fallback = fallback
+        self.allow_negative = False
+        if range_min < 0:
+            self.allow_negative = True
+
+    def process_resp(self, prediction):        
+        # pt format to en format
+        prediction = prediction.replace(",", ".")
+
+        dash = '-' if self.allow_negative else ''
+        regex_negate = fr"[^0-9{dash}]"
+        if self.type == float:
+            regex_negate = fr"[^0-9\.{dash}]"
+        
+        #get only the numeric part of the string
+        prediction = re.sub(regex_negate, "", prediction)
+
+        if '.' in prediction:
+            # find first index of '.' between 2 numbers
+            match = re.search(r'[0-9]\.[0-9]', prediction)
+            if match is not None:
+                dot_index = match.span()[0] + 1
+                prediction = prediction[:dot_index].replace('.', '') + '.' + prediction[dot_index+1:].replace('.', '')
+            else:
+                prediction = prediction.replace('.', '')
+
+        if prediction == "":
+            return self.fallback
+
+        try:
+            prediction = self.type(prediction)
+            
+            if prediction < self.range_min:
+                if self.on_outside_range == "clip":
+                    return self.range_min
+                return self.fallback
+            if prediction > self.range_max:
+                if self.on_outside_range == "clip":
+                    return self.range_max
+                return self.fallback
+
+            return prediction
+        except:
+            pass
+
+        return self.fallback
+        
+
+    def apply(self, resps, docs) -> None:
+        def filter_set(inst):
+            return [self.process_resp(resp) for resp in inst]
+        return [filter_set(resp) for resp in resps]
