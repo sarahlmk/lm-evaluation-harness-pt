@@ -20,6 +20,7 @@ FILTER_REGISTRY = {
     "find_choices": custom.ChoicesFilter,
     "find_similar_label": custom.SimilarLabelFilter,
     "number_filter": custom.NumberFilter,
+    "filter_by_hf_column": custom.FilterByHFColumnFilter,
     # TODO: implement this filter. either it should take in an arbitrary "scoring"/reward function
     # that takes an input and returns a scalar and then should select the max reward,
     # or should implement different filters for different ways of handling a reward model's inference.

@@ -170,3 +170,34 @@ class NumberFilter(Filter):
         def filter_set(inst):
             return [self.process_resp(resp) for resp in inst]
         return [filter_set(resp) for resp in resps]
+    
+class FilterByHFColumnFilter(Filter):
+
+    def __init__(
+            self,
+            filter,
+            column = 'id',
+            remove = False,
+    ) -> None:
+        self.filter = filter
+        self.column = column
+        self.remove = remove
+
+    def apply(self, resps, docs) -> None:
+        new_resps = []
+        ids = []
+        for i, (inst, doc) in enumerate(zip(resps, docs)):
+            is_filter = False
+            if isinstance(self.filter, list) or isinstance(self.filter, set) or isinstance(self.filter, tuple) or isinstance(self.filter, dict):
+                is_filter = doc[self.column] in self.filter
+            else:
+                is_filter = doc[self.column] == self.filter
+
+            if not self.remove and is_filter:
+                new_resps.append(inst)
+                ids.append(i)
+            elif self.remove and not is_filter:
+                new_resps.append(inst)
+                ids.append(i)
+
+        return new_resps, ids

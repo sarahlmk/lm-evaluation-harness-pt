@@ -384,7 +384,7 @@ def evaluate(
                 continue
         # TODO: make it possible to use a different metric per filter
         # iterate over different filters used
-        for key in task.instances[0].filtered_resps.keys():
+        for filter_id, key in enumerate(task.get_filters_names()):
             doc_iterator = (
                 itertools.islice(
                     enumerate(task.test_docs()), lm.rank, getattr(task, 'limit', n_limit), lm.world_size
@@ -398,26 +398,28 @@ def evaluate(
                 # subset instances to only this document id ; sort by idx
                 requests = list(filter(lambda x: x.doc_id == doc_id, task.instances))
                 requests.sort(key=lambda x: x.idx)
+                if key not in requests[0].filtered_resps:
+                    continue
                 metrics = task.process_results(
                     doc, [req.filtered_resps[key] for req in requests]
                 )
-                #if log_samples:
-                target = task.doc_to_target(doc)
-                example = {
-                    "doc_id": doc_id,
-                    "doc": doc,
-                    "arguments": [req.args for req in requests]
-                }
-                req = requests[0]
-                if req.model_data is not None:
-                    example.update(req.model_data)
-                example.update({
-                    "target": target,
-                    "resps": [req.resps for req in requests],
-                    "filtered_resps": [req.filtered_resps[key] for req in requests],
-                })
-                example.update(metrics)
-                samples[task_name].append(example)
+                if filter_id == 0:
+                    target = task.doc_to_target(doc)
+                    example = {
+                        "doc_id": doc_id,
+                        "doc": doc,
+                        "arguments": [req.args for req in requests]
+                    }
+                    req = requests[0]
+                    if req.model_data is not None:
+                        example.update(req.model_data)
+                    example.update({
+                        "target": target,
+                        "resps": [req.resps for req in requests],
+                        "filtered_resps": [req.filtered_resps[key] for req in requests],
+                    })
+                    example.update(metrics)
+                    samples[task_name].append(example)
                 for metric, value in metrics.items():
                     vals[(task_name, key, metric)].append(value)
 

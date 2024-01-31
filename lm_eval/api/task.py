@@ -531,6 +531,9 @@ class Task(abc.ABC):
         # TODO: this should only return the overrides applied to a non-YAML task's configuration.
         # (num_fewshot)
         return self.config.to_dict()
+    
+    def get_filters_names(self):
+        return [f.name for f in self._filters]
 
 
 class ConfigurableTask(Task):
@@ -652,31 +655,6 @@ class ConfigurableTask(Task):
         self._fewshot_docs = None
         self.task_docs = None
 
-        if self.config.filter_list is not None:
-            self._filters = []
-            for filter_config in self.config.filter_list:
-                for filter_pipeline in filter_config:
-                    filter_name = filter_config["name"]
-                    filter_functions = filter_config["filter"]
-                    components = []
-                    for function in filter_functions:
-                        kwargs = {
-                            key: function[key] for key in function if key != "function"
-                        }
-                        components.append([function["function"], kwargs])
-                    filter_pipeline = build_filter_ensemble(filter_name, components)
-                self._filters.append(filter_pipeline)
-        else:
-            self._filters = [build_filter_ensemble("none", [["take_first", None]])]
-
-        if self.config.use_prompt is not None:
-            eval_logger.info(f"loading prompt {self.config.use_prompt}")
-            self.prompt = get_prompt(
-                self.config.use_prompt, self.DATASET_PATH, self.DATASET_NAME
-            )
-        else:
-            self.prompt = None
-
         self.sampler = None
         if self.fewshot_docs() is not None:
             fewshot_config = self.config.fewshot_config if self.config.fewshot_config is not None else {}
@@ -711,6 +689,39 @@ class ConfigurableTask(Task):
                 eval_logger.info(
                     f"Eliminated {orig_num_docs - len(self.task_docs)} fewshot docs from original task docs"
                 )
+
+        #Configure filters
+        if self.config.filter_list is not None:
+            self._filters = []
+            for filter_config in self.config.filter_list:
+                for filter_pipeline in filter_config:
+                    filter_name = filter_config["name"]
+                    filter_functions = filter_config["filter"]
+                    components = []
+                    for function in filter_functions:
+                        kwargs = {
+                            key: function[key] for key in function if key != "function"
+                        }
+                        components.append([function["function"], kwargs])
+                    filter_pipeline = build_filter_ensemble(filter_name, components)
+                    self._filters.append(filter_pipeline)
+                    if 'group_by' in filter_config:
+                        column = filter_config['group_by']['column']
+                        groups = list(set(self.task_docs[column]))
+                        for group in groups:
+                            filter_func = ['filter_by_hf_column', {"filter": group, "column": column}]
+                            filter_pipeline = build_filter_ensemble(column+'__'+group, [filter_func]+components)
+                            self._filters.append(filter_pipeline)
+        else:
+            self._filters = [build_filter_ensemble("none", [["take_first", None]])]
+
+        if self.config.use_prompt is not None:
+            eval_logger.info(f"loading prompt {self.config.use_prompt}")
+            self.prompt = get_prompt(
+                self.config.use_prompt, self.DATASET_PATH, self.DATASET_NAME
+            )
+        else:
+            self.prompt = None
 
         # Test One Doc
         self.features = list(self.task_docs.features.keys())

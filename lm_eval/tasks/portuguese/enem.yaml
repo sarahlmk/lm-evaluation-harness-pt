@@ -3,6 +3,7 @@ group:
   - vestibular
 dataset_path: eduagarcia/enem_challenge
 task: enem_challenge
+task_alias: enem
 test_split: train
 fewshot_split: train
 fewshot_config:
@@ -25,7 +26,7 @@ generation_kwargs:
   do_sample: false
   temperature: 0.0
 filter_list:
-  - name: find_choices
+  - name: all
     filter:
       - function: normalize_spaces
       - function: remove_accents
@@ -38,6 +39,8 @@ filter_list:
           - "\\b([ABCDE])$"
           - "\\b([ABCDE])\\b"
       - function: take_first
+    group_by:
+      column: exam_id
 metric_list:
   - metric: acc
     aggregation: acc

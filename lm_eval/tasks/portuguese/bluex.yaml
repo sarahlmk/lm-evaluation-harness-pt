@@ -25,7 +25,7 @@ generation_kwargs:
   do_sample: false
   temperature: 0.0
 filter_list:
-  - name: find_choices
+  - name: all
     filter:
       - function: normalize_spaces
       - function: remove_accents
@@ -38,6 +38,8 @@ filter_list:
           - "\\b([ABCDE])$"
           - "\\b([ABCDE])\\b"
       - function: take_first
+    group_by:
+      column: exam_id
 metric_list:
   - metric: acc
     aggregation: acc

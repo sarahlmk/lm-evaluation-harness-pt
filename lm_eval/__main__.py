@@ -143,6 +143,13 @@ def parse_eval_args() -> argparse.Namespace:
         metavar="CRITICAL|ERROR|WARNING|INFO|DEBUG",
         help="Controls the reported logging error level. Set to DEBUG when testing + adding new task configurations for comprehensive log output.",
     )
+    parser.add_argument(
+        "--bootstrap_iters",
+        type=int,
+        default=100000,
+        metavar="N",
+        help="Numbers of iterations to bootstrap the evaluation. If 0, no bootstrapping is performed.",
+    )
     return parser.parse_args()
 
 
@@ -257,6 +264,7 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
         write_out=args.write_out,
         log_samples=args.log_samples,
         gen_kwargs=args.gen_kwargs,
+        bootstrap_iters=args.bootstrap_iters,
     )
 
     if results is not None:
