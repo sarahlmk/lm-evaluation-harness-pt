@@ -350,7 +350,7 @@ def evaluate(
             if k not in model_meta:
                 model_meta[k] = v
             else:
-                if k in ['truncated', 'non_truncated', 'padded', 'non_padded']:
+                if k in ['truncated', 'non_truncated', 'padded', 'non_padded', 'fewshots_truncated']:
                     model_meta[k] += v
                 elif v is not None:
                     model_meta[k] = v
@@ -490,19 +490,27 @@ def evaluate(
                 task_model_meta[task_name]["non_truncated"] = 0
                 task_model_meta[task_name]["padded"] = 0
                 task_model_meta[task_name]["non_padded"] = 0
+                task_model_meta[task_name]["fewshots_truncated"] = 0
                 src_lens = []
+                o_fw_size = []
+                e_fw_size = []
 
                 for sample in task_samples:
                     task_model_meta[task_name]["truncated"] += int(sample["tokenized_was_truncated"])
                     task_model_meta[task_name]["non_truncated"] += 1 - int(sample["tokenized_was_truncated"])
                     task_model_meta[task_name]["padded"] += int(sample["tokenized_was_padded"])
                     task_model_meta[task_name]["non_padded"] += 1 - int(sample["tokenized_was_padded"])
+                    task_model_meta[task_name]["fewshots_truncated"] += int(sample["original_fewshots_size"]) - int(sample["effective_fewshots_size"])
                     src_lens.append(sample["src_seq_length"])
+                    o_fw_size.append(sample["original_fewshots_size"])
+                    e_fw_size.append(sample["effective_fewshots_size"])
                 task_model_meta[task_name]["mean_seq_length"] = sum(src_lens)/len(src_lens)
                 task_model_meta[task_name]["min_seq_length"] = min(src_lens)
                 task_model_meta[task_name]["max_seq_length"] = max(src_lens)
                 task_model_meta[task_name]["max_ctx_length"] = sample["max_ctx_length"]
                 task_model_meta[task_name]["max_gen_toks"] = sample["max_gen_toks"]
+                task_model_meta[task_name]["mean_original_fewshots_size"] = sum(o_fw_size)/len(o_fw_size)
+                task_model_meta[task_name]["mean_effective_fewshot_size"] = sum(e_fw_size)/len(e_fw_size)
 
         # aggregate results ; run bootstrap CIs
         for (task_name, key, metric), items in vals.items():

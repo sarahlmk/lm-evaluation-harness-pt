@@ -705,8 +705,27 @@ class HFLM(LM):
                 chat_history.append({"role": "user", "content": q_shot.strip()})
                 chat_history.append({"role": "assistant", "content": a_shot.strip()})
         chat_history.append({"role": "user", "content": example.strip()})
-        
+
         return self.tokenizer.apply_chat_template(chat_history, add_generation_prompt=add_generation_prompt, tokenize=tokenize)
+
+    def _construct_text_input(self, 
+                            example: str,
+                            fewshots: Optional[List[Tuple[str, str]]] = None,
+                            description: str = None,
+                            fewshot_delimiter: str = '\n\n',
+                            target_delimiter: str = ''
+                            ) -> str:
+        if fewshots is None:
+            fewshots = []
+        labeled_examples = (
+            fewshot_delimiter.join(
+                # TODO: is separating doc_to_text and doc_to_target by one space always desired?
+                [shot[0] + target_delimiter + str(shot[1]) for shot in fewshots]
+            )
+            + fewshot_delimiter
+        )
+        return description + labeled_examples + example
+
 
     def _detect_batch_size_and_length(self, requests=None, pos: int = 0):
         """
@@ -813,6 +832,13 @@ class HFLM(LM):
                 encoding = [special_token] + encoding
 
         return encoding
+    
+    def get_truncated_ids(self, input_ids, max_length):
+        truncated_ids = []
+        for i, seq in enumerate(input_ids):
+            if len(seq) > max_length:
+                truncated_ids.append(i)
+        return truncated_ids
 
     def tok_batch_encode(
         self,
@@ -832,18 +858,23 @@ class HFLM(LM):
         #    add_special_tokens = True
         add_special_tokens = True
 
+        construct_text = lambda ctx: self._construct_text_input(**ctx)
+
         if ctx_data is not None and self.has_chat_template:
+            def _apply_chat_template_from_ctx(ctx):
+                return self._apply_chat_template(
+                    example=ctx["example"],
+                    fewshots=ctx["fewshots"],
+                    description=ctx["description"],
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+            construct_text = _apply_chat_template_from_ctx
+
             add_special_tokens = False
             new_strings = []
             for ctx in ctx_data:
-                new_strings.append(
-                    self._apply_chat_template(
-                        example=ctx["example"],
-                        fewshots=ctx["fewshots"],
-                        description=ctx["description"],
-                        tokenize=False,
-                        add_generation_prompt=True)
-                )
+                new_strings.append(construct_text(ctx))
             strings = new_strings
         
         #count num of truncations and paddings:
@@ -865,6 +896,38 @@ class HFLM(LM):
             padded.append(len(seq) < max_seq_len)
             src_seq_length.append(len(seq))
         src_text = self.tokenizer.batch_decode(stats_encoding["input_ids"])
+
+
+        # remove few-shots to max_length logic
+        #strings = copy.copy(strings)
+        truncated_ids = self.get_truncated_ids(stats_encoding["input_ids"], left_truncate_len)
+        max_truncated = []
+        original_fewshots = [len(ctx["fewshots"]) for ctx in ctx_data]
+        effective_fewshots = [len(ctx["fewshots"]) for ctx in ctx_data]
+        while len(truncated_ids) != 0:
+            for i in truncated_ids:
+                new_ctx = copy.deepcopy(ctx_data[i])
+                n_fewshot_size = effective_fewshots[i] - 1
+
+                if n_fewshot_size >= 0:
+                    new_ctx['fewshots'] = new_ctx["fewshots"][:n_fewshot_size]
+                    effective_fewshots[i] = n_fewshot_size
+
+                    new_string = construct_text(new_ctx)
+                    strings[i] = new_string
+                else:
+                    max_truncated.append(i)
+                
+            stats_encoding = self.tokenizer(
+                strings,
+                truncation=False,
+                padding=False,
+                max_length=None,
+                add_special_tokens=add_special_tokens
+            )
+            truncated_ids = self.get_truncated_ids(stats_encoding["input_ids"], left_truncate_len)
+            truncated_ids = [_i for _i in truncated_ids if _i not in max_truncated]
+        
             
         has_initial_special_token = add_special_tokens and stats_encoding["special_tokens_mask"][0][0] == 1
 
@@ -900,7 +963,7 @@ class HFLM(LM):
         
         stats = []
         # convert list truncated, padded, src_seq_length, src_text, tokenized_seq_length, tokenized_text to one list of dicts
-        for i in range(len(truncated)):
+        for i in range(len(strings)):
             stats.append({
                 "src_text": src_text[i],
                 "src_seq_length": src_seq_length[i],
@@ -908,6 +971,8 @@ class HFLM(LM):
                 "tokenized_was_padded": padded[i],
                 "tokenized_text": tokenized_text[i],
                 "tokenized_seq_length": tokenized_seq_length[i],
+                "original_fewshots_size": original_fewshots[i],
+                "effective_fewshots_size": effective_fewshots[i]
             })
 
         return encoding["input_ids"], encoding["attention_mask"], stats
@@ -1278,6 +1343,7 @@ class HFLM(LM):
             "non_truncated": 0,
             "padded": 0,
             "non_padded": 0,
+            "fewshots_truncated": 0,
             "has_chat_template": self.has_chat_template,
             "chat_type": self.chat_type
         }
@@ -1392,6 +1458,7 @@ class HFLM(LM):
             meta["padded"] += n_padded
             meta["non_truncated"] += len(contexts) - n_truncated
             meta["non_padded"] += len(contexts) - n_padded
+            meta["fewshots_truncated"] += sum([s["original_fewshots_size"] for s in batch_stat]) - sum([s["effective_fewshots_size"] for s in batch_stat])
            
             if "max_length" not in kwargs:
                 kwargs["max_length"] = context_enc.shape[1] + max_gen_toks

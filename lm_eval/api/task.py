@@ -509,7 +509,9 @@ class Task(abc.ABC):
         ctx_data = {
             'description': description,
             'fewshots': shots,
-            'example': example
+            'example': example,
+            'target_delimiter': '',
+            'fewshot_delimiter': '\n\n'
         }
 
         return description + labeled_examples + example, ctx_data
@@ -870,7 +872,9 @@ class ConfigurableTask(Task):
         ctx_data = {
             'description': self.config.description,
             'fewshots': fewshots,
-            'example': example
+            'example': example,
+            'target_delimiter': self.sampler.target_delimiter,
+            'fewshot_delimiter': self.sampler.fewshot_delimiter
         }
 
         if self.multiple_input:
