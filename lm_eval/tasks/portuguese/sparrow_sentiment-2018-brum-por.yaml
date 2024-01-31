@@ -10,7 +10,6 @@ fewshot_split: train
 fewshot_config:
   sampler: first_n
 test_split: validation
-limit: 500
 num_fewshot: 15
 description: "Abaixo contém o conteúdo de tweets de usuarios do Twitter em português, sua tarefa é classificar se o\
   \ sentimento do texto é Positivo, Neutro ou Negativo. Responda apenas com uma das opções.\n\n"

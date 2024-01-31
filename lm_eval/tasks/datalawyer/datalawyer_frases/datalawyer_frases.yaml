@@ -8,7 +8,6 @@ fewshot_split: train
 fewshot_config:
   sampler: first_n
 test_split: test
-limit: 2000
 num_fewshot: 15
 description: "Abaixo contém frases extraidas de documentos jurídicos, seu trabalho é classificá-las em um dos seguintes tópicos:\
   \ 'Argumentação', 'Decisão', 'Definição', 'Exposição', 'Pedido', 'Qualificação', 'Referência' ou 'Vebertação', se não pertencer a nenhuma das anteriores\
