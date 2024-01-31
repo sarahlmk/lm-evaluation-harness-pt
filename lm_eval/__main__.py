@@ -235,15 +235,15 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
 
     eval_logger.info(f"Selected Tasks: {task_names}")
 
-    num_fewshots = None
-    if args.num_fewshot is not None:
+    num_fewshots = args.num_fewshot
+    if args.num_fewshot is not None and isinstance(args.num_fewshot, str):
         if ',' in args.num_fewshot:
             num_fewshots = [None if n == 'None' else int(n) for n in args.num_fewshot.split(',')]
         else:
             num_fewshots = int(args.num_fewshot)
 
-    limits = None
-    if args.limit is not None:
+    limits = args.limit
+    if args.limit is not None and isinstance(args.limit, str):
         if ',' in args.limit:
             limits = [None if n == 'None' else float(n) for n in args.limit.split(',')]
         else:
