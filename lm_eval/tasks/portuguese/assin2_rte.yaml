@@ -14,8 +14,8 @@ fewshot_config:
 test_split: test
 num_fewshot: 15
 description: "Abaixo contém pares de premissa e hipótese, para cada par você deve julgar se a hipótese\
-  \ pode ser inferida a partir da premissa, escreva apenas Sim ou Não.\n\n"
-doc_to_text: "Premissa: {{premise}}\nHipótese: {{hypothesis}}\nA hipótese pode ser inferida pela premissa? Resposta:"
+  \ pode ser inferida a partir da premissa, responda apenas com Sim ou Não.\n\n"
+doc_to_text: "Premissa: {{premise}}\nHipótese: {{hypothesis}}\nPergunta: A hipótese pode ser inferida pela premissa?\nResposta:"
 doc_to_target: "{{['Não', 'Sim'][entailment_judgment]}}"
 generation_kwargs:
   max_gen_toks: 32

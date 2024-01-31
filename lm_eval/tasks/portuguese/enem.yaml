@@ -1,5 +1,6 @@
 group:
   - pt_benchmark
+  - vestibular
 dataset_path: eduagarcia/enem_challenge
 task: enem_challenge
 test_split: train

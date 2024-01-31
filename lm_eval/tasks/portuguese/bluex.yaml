@@ -1,5 +1,6 @@
 group:
   - pt_benchmark
+  - vestibular
 dataset_path: eduagarcia-temp/BLUEX_without_images # filter of portuguese-benchmark-datasets/BLUEX
 task: bluex
 test_split: train
