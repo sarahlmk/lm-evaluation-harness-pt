@@ -199,6 +199,7 @@ class HFLM(LM):
         peft: Optional[str] = None,
         autogptq: Optional[Union[bool, str]] = False,
         apply_chat_template: Optional[bool] = True, #apply chat template to input if available
+        starting_max_length: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -352,6 +353,7 @@ class HFLM(LM):
         self.batch_schedule = 1
         self.batch_sizes = {}
         self.max_batch_size = max_batch_size
+        self.starting_max_length = starting_max_length
 
         self._conservative_batch_size = False
         if batch_size == "conservative":
@@ -772,10 +774,14 @@ class HFLM(LM):
             return self.batch_size, self._max_length
 
         eval_logger.info(f"Detecting batch size and max length, starting with batch size {self.max_batch_size} and max length {self.max_length}")
+        starting_max_length = self.max_length
+        if self._max_length is None and self.starting_max_length is not None and self.max_length > self.starting_max_length:
+            starting_max_length = self.starting_max_length
+        
         # if OOM, then halves batch_size and tries again
         @find_executable_memory_size(
                 starting_batch_size=self.max_batch_size,
-                starting_max_length=self.max_length,
+                starting_max_length=starting_max_length,
                 fix_batch_size=isinstance(self.batch_size, int),
                 fix_max_length=self._max_length is not None)
         def forward_batch(batch_size, max_length):
@@ -1056,6 +1062,7 @@ class HFLM(LM):
             stopping_criteria=stopping_criteria,
             pad_token_id=self.tokenizer.pad_token_id,
             use_cache=True,
+            max_new_tokens=None, #overide default of some models
             **generation_kwargs,
         )
 
