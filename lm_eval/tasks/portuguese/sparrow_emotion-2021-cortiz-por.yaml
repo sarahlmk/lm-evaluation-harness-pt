@@ -12,7 +12,7 @@ fewshot_config:
 test_split: validation
 limit: 500
 num_fewshot: 15
-description: "Abaixo contém o conteudo de tweets de usuarios em português, sua tarefa é extrair\
+description: "Abaixo contém o conteúdo de tweets de usuarios do Twitter em português, sua tarefa é extrair\
  \ qual a principal emoção dos textos. Responda com apenas uma das seguintes opções:\n\
 \ Admiração, Diversão, Raiva, Aborrecimento, Aprovação, Compaixão, Confusão, Curiosidade, Desejo,\
  \ Decepção, Desaprovação, Nojo, Vergonha, Inveja, Entusiasmo, Medo, Gratidão, Luto, Alegria,\
