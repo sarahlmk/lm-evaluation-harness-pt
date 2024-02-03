@@ -1,8 +1,7 @@
 group:
   - legal_benchmark
 task: datalawyer_frases
-dataset_path: eduagarcia/cnj_benchmarks
-dataset_name: datalawyer-frases-v0_4
+dataset_path: datalawyer/datalawyer-frases-v0_4
 output_type: generate_until
 fewshot_split: train
 fewshot_config:
