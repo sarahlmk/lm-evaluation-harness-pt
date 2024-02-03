@@ -25,6 +25,8 @@ generation_kwargs:
   max_gen_toks: 32
   do_sample: false
   temperature: 0.0
+  top_k: null
+  top_p: null
 filter_list:
   - name: all
     filter:
