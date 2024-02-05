@@ -25,7 +25,7 @@ generation_kwargs:
   top_k: null
   top_p: null
 filter_list:
-  - name: find_similar_label
+  - name: all
     filter:
       - function: find_similar_label
         labels: ['Admiração', 'Diversão', 'Raiva', 'Aborrecimento', 'Aprovação', 'Compaixão', 'Confusão', 'Curiosidade', 'Desejo', 'Decepção', 'Desaprovação', 'Nojo', ' Vergonha', 'Inveja', 'Entusiasmo', 'Medo', 'Gratidão', 'Luto', 'Alegria', 'Saudade', 'Amor', 'Nervosismo', 'Otimismo', 'Orgulho', 'Alívio', 'Remorso', 'Tristeza', 'Surpresa']

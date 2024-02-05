@@ -14,8 +14,8 @@ fewshot_config:
 test_split: test
 num_fewshot: 15
 description: "Abaixo contém pares de frases, para cada par você deve julgar o grau de similaridade\
-  \ de 0,0 a 5,0, responda apenas com o número.\n\n"
-doc_to_text: "Frase 1: {{premise}}\nFrase 2: {{hypothesis}}\nPergunta: Qual o grau de similaridade entre as duas frases de 0,0 a 5,0?\nResposta:"
+  \ de 1,0 a 5,0, responda apenas com o número.\n\n"
+doc_to_text: "Frase 1: {{premise}}\nFrase 2: {{hypothesis}}\nPergunta: Qual o grau de similaridade entre as duas frases de 1,0 a 5,0?\nResposta:"
 doc_to_target: !function util.assin2_float_to_pt_str
 generation_kwargs:
   max_gen_toks: 32
@@ -24,11 +24,11 @@ generation_kwargs:
   top_k: null
   top_p: null
 filter_list:
-  - name: number_filter
+  - name: all
     filter:
       - function: number_filter
         type: float
-        range_min: 0.0
+        range_min: 1.0
         range_max: 5.0
         on_outside_range: "clip"
         fallback: 5.0

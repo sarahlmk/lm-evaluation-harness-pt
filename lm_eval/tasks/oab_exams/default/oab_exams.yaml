@@ -27,7 +27,7 @@ generation_kwargs:
   top_k: null
   top_p: null
 filter_list:
-  - name: find_choices
+  - name: all
     filter:
       - function: normalize_spaces
       - function: remove_accents

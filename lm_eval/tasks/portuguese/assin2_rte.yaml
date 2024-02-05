@@ -24,7 +24,7 @@ generation_kwargs:
   top_k: null
   top_p: null
 filter_list:
-  - name: find_similar_label
+  - name: all
     filter:
       - function: find_similar_label
         labels: ['Sim', 'Não']
