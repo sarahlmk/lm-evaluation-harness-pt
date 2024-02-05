@@ -242,12 +242,20 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
         else:
             num_fewshots = int(args.num_fewshot)
 
+    if isinstance(num_fewshots, list):
+        unsorted_task_list = args.tasks.split(",")
+        num_fewshots = [num_fewshots[unsorted_task_list.index(task)] for task in task_names]
+
     limits = args.limit
     if args.limit is not None and isinstance(args.limit, str):
         if ',' in args.limit:
             limits = [None if n == 'None' else float(n) for n in args.limit.split(',')]
         else:
             limits = float(args.limit)
+
+    if isinstance(limits, list):
+        unsorted_task_list = args.tasks.split(",")
+        limits = [limits[unsorted_task_list.index(task)] for task in task_names]
 
     results = evaluator.simple_evaluate(
         model=args.model,

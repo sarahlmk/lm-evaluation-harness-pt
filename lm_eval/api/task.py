@@ -344,7 +344,8 @@ class Task(abc.ABC):
 
         if limit is None:
             limit = self.config.limit
-        if limit <= 0:
+            
+        if limit is not None and limit <= 0:
             limit = None
         
         self.limit = limit

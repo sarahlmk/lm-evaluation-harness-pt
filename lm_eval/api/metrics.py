@@ -84,7 +84,7 @@ def pearsonr(items):
     golds = unzipped_list[0]
     preds = unzipped_list[1]
 
-    return scipy.stats.pearsonr(golds, preds).statistic
+    return abs(scipy.stats.pearsonr(golds, preds)[0])
 
 @register_aggregation("mean_squared_error")
 def mean_squared_error(items):

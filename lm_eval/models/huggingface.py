@@ -686,8 +686,8 @@ class HFLM(LM):
             )
 
         self.has_chat_template = False
+        self.chat_type = None
         if apply_chat_template and self.tokenizer.chat_template is not None:
-            self.chat_type = None
             for chat_type in ["system_user_assistant", "assistant_user", "user_assistant"]:
                 eval_logger.debug(f"Trying chat type {chat_type}")
                 try:
@@ -857,7 +857,7 @@ class HFLM(LM):
             return_special_tokens_mask=True
         )
 
-        has_initial_special_token = add_special_tokens and encoding["special_tokens_mask"][0][0] == 1
+        has_initial_special_token = add_special_tokens and string_tokenized["special_tokens_mask"][0][0] == 1
         encoding = string_tokenized["input_ids"][0]
         
         # left-truncate the encoded context to be at most `left_truncate_len` tokens long
@@ -887,6 +887,7 @@ class HFLM(LM):
         truncation: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # encode a batch of strings. converts to tensors and pads automatically, unlike tok_encode.
+        strings = list(strings)
         old_padding_side = self.tokenizer.padding_side
         self.tokenizer.padding_side = padding_side
 
@@ -933,9 +934,9 @@ class HFLM(LM):
             truncated.append(len(seq) > left_truncate_len)
             padded.append(len(seq) < max_seq_len)
             src_seq_length.append(len(seq))
+        has_initial_special_token = add_special_tokens and stats_encoding["special_tokens_mask"][0][0] == 1
         src_text = self.tokenizer.batch_decode(stats_encoding["input_ids"])
-
-
+        
         # remove few-shots to max_length logic
         #strings = copy.copy(strings)
         truncated_ids = self.get_truncated_ids(stats_encoding["input_ids"], left_truncate_len)
@@ -965,9 +966,6 @@ class HFLM(LM):
             )
             truncated_ids = self.get_truncated_ids(stats_encoding["input_ids"], left_truncate_len)
             truncated_ids = [_i for _i in truncated_ids if _i not in max_truncated]
-        
-            
-        has_initial_special_token = add_special_tokens and stats_encoding["special_tokens_mask"][0][0] == 1
 
         encoding = self.tokenizer(
             strings,
