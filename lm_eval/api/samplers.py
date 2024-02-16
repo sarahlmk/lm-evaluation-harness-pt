@@ -134,6 +134,11 @@ class DocIDSampler(FirstNSampler):
         self.id_list = id_list
         assert self.id_column, "Must specify id_column for DocIDSampler"
         self.docs_dataset = self.docs_dataset.filter(lambda x: x[self.id_column] in self.id_list)
+        
+        # reorder the dataset to match the order of the id_list
+        id_column_list = list(self.docs_dataset[self.id_column])
+        self.docs_dataset = self.docs_dataset.select([id_column_list.index(i) for i in self.id_list])
+        
         self.docs = list(self.docs_dataset)
 
     def remove_fewshot_from_task(self, dataset):
