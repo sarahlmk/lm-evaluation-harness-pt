@@ -5,7 +5,7 @@ def enem_generate_options(choices):
     return options.strip()
 
 def enem_doc_to_text(doc):
-    return f"Pergunta:\n{doc['question']}\nAlternativas:\n{enem_generate_options(doc['choices'])}\nResposta Correta:"
+    return f"Pergunta:\n{doc['question']}\nAlternativas:\n{enem_generate_options(doc['choices'])}\nResposta correta:"
 
 def assin2_float_to_pt_str(doc):
     return "{:.1f}".format(doc['relatedness_score']).replace('.', ',')

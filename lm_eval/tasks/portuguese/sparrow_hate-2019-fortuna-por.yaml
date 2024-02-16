@@ -11,8 +11,8 @@ fewshot_config:
   sampler: first_n
 test_split: validation
 num_fewshot: 15
-description: "Abaixo contém o conteúdo de tweets de usuarios do Twitter em português, sua tarefa é classificar se o\
-  \ texto contem discurso de ódio our não. Responda apenas com Sim ou Não.\n\n"
+description: "Abaixo contém o texto de tweets de usuários do Twitter em português, sua tarefa é classificar se o\
+  \ texto contem discurso de ódio ou não. Responda apenas com \"Sim\" ou \"Não\".\n\n"
 doc_to_text: "Texto: {{content}}\nPergunta: O texto contém discurso de ódio?\nResposta:"
 doc_to_target: "{{'Sim' if label == 'Hate' else 'Não'}}"
 generation_kwargs:

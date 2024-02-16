@@ -20,7 +20,7 @@ class ChoicesFilter(Filter):
         if regex_patterns is None:
             choices_text = "".join(choices)
             regex_patterns = [
-                fr"(?:[Ll]etra|[Aa]lternativa|[Rr]esposta|[Rr]esposta [Cc]orreta|[Rr]esposta[Cc]orreta e|[Oo]pcao):? ([{choices_text}])\b",
+                fr"(?:[Ll]etra|[Aa]lternativa|[Rr]esposta|[Rr]esposta [Cc]orreta|[Rr]esposta [Cc]orreta e|[Oo]pcao):? ([{choices_text}])\b",
                 fr"\b([{choices_text}]) ?[.):-]",
                 fr"\b([{choices_text}])$",
                 fr"\b([{choices_text}])\b"
