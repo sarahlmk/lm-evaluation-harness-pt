@@ -773,10 +773,11 @@ class HFLM(LM):
         if isinstance(self.batch_size, int) and self._max_length is not None:
             return self.batch_size, self._max_length
 
-        eval_logger.info(f"Detecting batch size and max length, starting with batch size {self.max_batch_size} and max length {self.max_length}")
         starting_max_length = self.max_length
         if self._max_length is None and self.starting_max_length is not None and self.max_length > self.starting_max_length:
             starting_max_length = self.starting_max_length
+
+        eval_logger.info(f"Detecting batch size and max length, starting with batch size {self.max_batch_size} and max length {starting_max_length}")
         
         # if OOM, then halves batch_size and tries again
         @find_executable_memory_size(
