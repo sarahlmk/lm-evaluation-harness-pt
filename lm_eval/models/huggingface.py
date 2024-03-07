@@ -78,7 +78,9 @@ def find_executable_memory_size(
         starting_max_length: int = 2048,
         fix_batch_size: bool = False,
         fix_max_length: bool = False,
-        minumum_max_length: int = 512
+        minumum_max_length: int = 512,
+        batch_reduction_function: callable = lambda x: x - 32 if x >= 64 else x // 2,
+        length_reduction_function: callable = lambda x: x - 256
         ):
     """
     A basic decorator that will try to execute `function`. If it fails from exceptions related to out-of-memory or
@@ -107,14 +109,16 @@ def find_executable_memory_size(
             starting_max_length=starting_max_length,
             fix_batch_size=fix_batch_size,
             fix_max_length=fix_max_length,
-            minumum_max_length=minumum_max_length
+            minumum_max_length=minumum_max_length,
+            batch_reduction_function=batch_reduction_function,
+            length_reduction_function=length_reduction_function,
         )
 
     batch_size = starting_batch_size
     max_length = starting_max_length
 
     def decorator(*args, **kwargs):
-        nonlocal batch_size, max_length, fix_batch_size, fix_max_length, minumum_max_length
+        nonlocal batch_size, max_length, fix_batch_size, fix_max_length, minumum_max_length, batch_reduction_function, length_reduction_function
         gc.collect()
         torch.cuda.empty_cache()
         params = list(inspect.signature(function).parameters.keys())
@@ -143,9 +147,9 @@ def find_executable_memory_size(
                     gc.collect()
                     torch.cuda.empty_cache()
                     if (fix_max_length or batch_size > 1) and not fix_batch_size:
-                        batch_size //= 2
+                        batch_size = batch_reduction_function(batch_size)
                     else:
-                        max_length //= 2
+                        max_length = length_reduction_function(max_length)
                 else:
                     raise
 
@@ -776,6 +780,7 @@ class HFLM(LM):
         starting_max_length = self.max_length
         if self._max_length is None and self.starting_max_length is not None and self.max_length > self.starting_max_length:
             starting_max_length = self.starting_max_length
+
 
         eval_logger.info(f"Detecting batch size and max length, starting with batch size {self.max_batch_size} and max length {starting_max_length}")
         
