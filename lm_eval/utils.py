@@ -36,6 +36,10 @@ logging.basicConfig(
     format="%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
     datefmt="%Y-%m-%d:%H:%M:%S",
     level=logging.INFO,
+    handlers=[
+        logging.FileHandler("output.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
 )
 eval_logger = logging.getLogger("lm-eval")
 
@@ -737,6 +741,7 @@ def retry_on_specific_exceptions(
     max_retries: Optional[int] = None,
     backoff_time: float = 3.0,
     backoff_multiplier: float = 1.5,
+    rate_limit_backoff: float = 60.0,
     on_exception_callback: Optional[Callable[[Exception, float], Any]] = None,
 ):
     """Retry on an LLM Provider's rate limit error with exponential backoff
@@ -763,9 +768,14 @@ def retry_on_specific_exceptions(
                 except tuple(on_exceptions) as e:
                     if on_exception_callback is not None:
                         on_exception_callback(e, sleep_time)
-                    time.sleep(sleep_time)
-                    sleep_time *= backoff_multiplier
-                    attempt += 1
+                    if 'rate limit' in str(e).lower() or 'quota exceeded' in str(e).lower():
+                        eval_logger.info(f"Caught Rate Limit: {e}. Retrying in {rate_limit_backoff} seconds.")
+                        time.sleep(rate_limit_backoff)
+                    else:
+                        eval_logger.info(f"Caught exception: {e}. Retrying in {sleep_time} seconds.")
+                        time.sleep(sleep_time)
+                        sleep_time *= backoff_multiplier
+                        attempt += 1
 
         return wrapper
 

@@ -82,6 +82,7 @@ class TaskConfig(dict):
     doc_to_decontamination_query: str = None
     take_first_n: int = None
     take_last_n: int = None
+    take_random_n: int = None
     limit: int = None
 
     metadata: Union[
@@ -679,11 +680,6 @@ class ConfigurableTask(Task):
         else:
             assert False, f"Task dataset (path={self.DATASET_PATH}, name={self.DATASET_NAME}) must have valid or test docs!"
 
-        if self.config.take_first_n is not None:
-            self.task_docs = self.task_docs.select(list(range(self.config.take_first_n)))
-        if self.config.take_last_n is not None:
-            self.task_docs = self.task_docs.select(list(range(len(self.task_docs) - self.config.take_last_n, len(self.task_docs))))
-
         if self.sampler is not None:
             if self.sampler.exclude_from_task:
                 eval_logger.info("Eliminating fewshot examples from task docs")
@@ -692,6 +688,14 @@ class ConfigurableTask(Task):
                 eval_logger.info(
                     f"Eliminated {orig_num_docs - len(self.task_docs)} fewshot docs from original task docs"
                 )
+
+        if self.config.take_first_n is not None:
+            self.task_docs = self.task_docs.select(list(range(self.config.take_first_n)))
+        if self.config.take_last_n is not None:
+            self.task_docs = self.task_docs.select(list(range(len(self.task_docs) - self.config.take_last_n, len(self.task_docs))))
+        if self.config.take_random_n is not None:
+            rng = np.random.RandomState(42)
+            self.task_docs = self.task_docs.select(rng.choice(range(len(self.task_docs)), self.config.take_random_n, replace=False))
 
         #Configure filters
         if self.config.filter_list is not None:
