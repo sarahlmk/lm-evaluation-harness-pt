@@ -741,7 +741,7 @@ def retry_on_specific_exceptions(
     max_retries: Optional[int] = None,
     backoff_time: float = 3.0,
     backoff_multiplier: float = 1.5,
-    rate_limit_backoff: float = 60.0,
+    rate_limit_backoff: float = 30.0,
     on_exception_callback: Optional[Callable[[Exception, float], Any]] = None,
 ):
     """Retry on an LLM Provider's rate limit error with exponential backoff
@@ -771,6 +771,9 @@ def retry_on_specific_exceptions(
                     if 'rate limit' in str(e).lower() or 'quota exceeded' in str(e).lower():
                         eval_logger.info(f"Caught Rate Limit: {e}. Retrying in {rate_limit_backoff} seconds.")
                         time.sleep(rate_limit_backoff)
+                    elif 'Content has no parts' in str(e):
+                        eval_logger.info(f"VertexAIException - Content has no parts")
+                        break
                     else:
                         eval_logger.info(f"Caught exception: {e}. Retrying in {sleep_time} seconds.")
                         time.sleep(sleep_time)

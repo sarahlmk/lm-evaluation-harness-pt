@@ -395,7 +395,7 @@ class OpenaiChatCompletionsLM(LM):
         # Read from environment variable OPENAI_API_KEY
         # Set to EMPTY for local
         if self.base_url:
-            self.client = openai.OpenAI(base_url=self.base_url)
+            self.client = openai.OpenAI(base_url=self.base_url, max_retries=0)
         else:
             self.client = openai.OpenAI()  # openai.AsyncOpenAI()
 
@@ -437,18 +437,50 @@ class OpenaiChatCompletionsLM(LM):
             )
 
         resp_exist = {}
+        
         """
         if "gemini-1.5" in self.model:
             import json
             model_path = "/mnt/e/ceia/llm-eval/portuguese-llm-eval/outputs/gemini_1_5"
-            for task in ["bluex_limit200", "enem_challenge_limit200"]:
+            for task in ["bluex", "enem_challenge", "oab_exams"]:
                 resp_exist[task] = {}
-                responses_path = os.path.join(model_path, task + '_old', 'responses.jsonl')
+                task_dir = os.path.join(model_path, task + '_limit200')
+                filename = [f for f in os.listdir(task_dir) if f.endswith(".jsonl")][0]
+                responses_path = os.path.join(task_dir, filename)
                 with open(responses_path, 'r') as f:
                     resps = json.load(f)
                 for resp in resps:
                     resp_exist[task][resp['doc']['id']] = resp['resps'][0][0]
+        if "sabia" in self.model:
+            import json
+            log_path = "/mnt/e/ceia/llm-eval/portuguese-llm-eval/outputs/sabia-2_medium/bak/output.log"
+            id_list = []
+            task_dir = "/mnt/e/ceia/llm-eval/portuguese-llm-eval/outputs/gemini_1_5/enem_challenge/"
+            filename = [f for f in os.listdir(task_dir) if f.endswith(".jsonl")][0]
+            with open(os.path.join(task_dir, filename), 'r') as f:
+                enem_challenge = json.load(f)
+                for item in enem_challenge:
+                    id_list.append(item['doc']['id'])
+            resp_exist["enem_challenge"] = {}
+            start_responses = False
+            resp_index = 0
+            with open(log_path, 'r') as f:
+                for line in f:
+                    if "[__main__.py:236] Selected Tasks:" in line:
+                        resp_index = 0
+                        start_responses = False
+                        if "enem_challenge" in line:
+                            start_responses = True
+                    if start_responses:
+                        if "[openai_completions.py:78] Response: " in line:
+                            #The answer is in the format:
+                            #2024-04-13:08:57:24,706 INFO     [openai_completions.py:78] Response: ['ANSWER']
+                            resp_exist["enem_challenge"][id_list[resp_index]] = line.split("Response: ")[1].replace("['", "").replace("']", "")
+                            resp_index += 1
+                        elif "Given an empty response" in line:
+                            resp_index += 1
         """
+        
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
         for key, re_ord in re_ords.items():
             # n needs to be 1 because messages in
@@ -458,7 +490,7 @@ class OpenaiChatCompletionsLM(LM):
             for chunk in chunks:
                 contexts, all_gen_kwargs = zip(*chunk)
                 inps = []
-                metas = []       
+                metas = []    
                 for context in contexts:
                     data = context.ctx_data
                     inps.append({"role": "system", "content": self.fix_text(data['description'])})
@@ -466,7 +498,7 @@ class OpenaiChatCompletionsLM(LM):
                         inps.append({"role": "user", "content": self.fix_text(shot)})
                         inps.append({"role": "assistant", "content": self.fix_text(ans)})
                     inps.append({"role": "user", "content": self.fix_text(data['example'])})
-
+                    
                     if context.task_name in resp_exist and context.doc['id'] in resp_exist[context.task_name].keys():
                         metas.append(resp_exist[context.task_name][context.doc['id']])
                     else:
