@@ -2,11 +2,17 @@ import copy
 import os
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
+from datetime import timedelta
 
 import torch
 import torch.nn.functional as F
 import transformers
-from accelerate import Accelerator, DistributedType, find_executable_batch_size
+from accelerate import (
+    Accelerator,
+    DistributedType,
+    InitProcessGroupKwargs,
+    find_executable_batch_size,
+)
 from packaging import version
 from peft import PeftModel
 from peft import __version__ as PEFT_VERSION
@@ -241,7 +247,8 @@ class HFLM(LM):
 
             gpus = torch.cuda.device_count()
             self.gpus = gpus
-            accelerator = Accelerator()
+            accelerator_kwargs = InitProcessGroupKwargs(timeout=timedelta(weeks=52))
+            accelerator = Accelerator(kwargs_handlers=[accelerator_kwargs])
             if accelerator.num_processes > 1:
                 self.accelerator = accelerator
 
@@ -310,8 +317,9 @@ class HFLM(LM):
             )
 
         # access self._model through self.model property outside this method
-        self.model.eval()
-        self.model.tie_weights()
+        if isinstance(self.model, torch.nn.Module):
+            self.model.eval()
+            self.model.tie_weights()
 
         if isinstance(pretrained, str) and (gpus >= 1 or str(self.device) == "mps"):
             # TODO: can remove this whole snippet except in the mps case, perhaps?
@@ -595,16 +603,16 @@ class HFLM(LM):
                 model_kwargs.update({"device_map": {"": str(self.device)}})
 
         if not autogptq:
+            #if model_kwargs.get("load_in_4bit", None):
+            #    assert (
+            #        transformers.__version__ >= "4.30.0"
+            #    ), "load_in_4bit requires transformers >= 4.30.0"
+            #if transformers.__version__ >= "4.30.0":
             if model_kwargs.get("load_in_4bit", None):
-                assert (
-                    transformers.__version__ >= "4.30.0"
-                ), "load_in_4bit requires transformers >= 4.30.0"
-            if transformers.__version__ >= "4.30.0":
-                if model_kwargs.get("load_in_4bit", None):
-                    if model_kwargs.get("bnb_4bit_compute_dtype", None):
-                        model_kwargs["bnb_4bit_compute_dtype"] = utils.get_dtype(
-                            model_kwargs["bnb_4bit_compute_dtype"]
-                        )
+                if model_kwargs.get("bnb_4bit_compute_dtype", None):
+                    model_kwargs["bnb_4bit_compute_dtype"] = utils.get_dtype(
+                        model_kwargs["bnb_4bit_compute_dtype"]
+                    )
             self._model = self.AUTO_MODEL_CLASS.from_pretrained(
                 pretrained,
                 revision=revision,
@@ -632,8 +640,8 @@ class HFLM(LM):
             )
 
         if peft:
-            if model_kwargs.get("load_in_4bit", None):
-                assert PEFT_VERSION >= "0.4.0", "load_in_4bit requires peft >= 0.4.0"
+            #if model_kwargs.get("load_in_4bit", None):
+            #    assert PEFT_VERSION >= "0.4.0", "load_in_4bit requires peft >= 0.4.0"
             self._model = PeftModel.from_pretrained(
                 self._model, peft, revision=revision
             )
@@ -807,8 +815,7 @@ class HFLM(LM):
                     (batch_size, max_length), device=self.device
                 ).long()
             for _ in range(5):
-                out = F.log_softmax(self._model_call(test_batch, **call_kwargs), dim=-1)
-                out = out  # Identity process so that it passes pre-commit
+                out = F.log_softmax(self._model_call(test_batch, **call_kwargs), dim=-1)  # noqa: F841
 
             return batch_size, max_length
 
