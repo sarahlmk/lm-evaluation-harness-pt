@@ -1489,7 +1489,7 @@ class HFLM(LM):
                 )
             if not until:
                 until = [self.tok_decode(self.eot_token_id)]
-                
+
             if "max_gen_toks" in kwargs.keys():
                 max_gen_toks = kwargs.pop("max_gen_toks")
             else:
@@ -1546,6 +1546,12 @@ class HFLM(LM):
 
                 s = self.tok_decode(cont_toks)
 
+                #for deepseek reasioning model
+                reasoning = None
+                if '</think>' in s:
+                    reasoning = s[:s.rfind('</think>') + len('</think>')]
+                    s = s[s.rfind('</think>') + len('</think>'):]
+
                 # use secondary stop seqs to cut off should-have-been-stopped content post-hoc
                 for term in until:
                     if len(term) > 0:
@@ -1556,6 +1562,7 @@ class HFLM(LM):
                 res.append(s)
                 stat['max_ctx_length'] = max_ctx_len
                 stat['max_gen_toks'] = max_gen_toks
+                stat['reasoning'] = reasoning
                 stats.append(stat)
 
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), s)
