@@ -31,7 +31,7 @@ from lm_eval import utils
 try:
     import ray
     from ray.util.multiprocessing import Pool
-    from vllm import LLM, SamplingParams, RequestOutput
+    from vllm import LLM, SamplingParams
     from vllm.transformers_utils.tokenizer import get_tokenizer
     from vllm.lora.request import LoRARequest
 except ModuleNotFoundError:
@@ -311,7 +311,7 @@ class VLLM(LM):
         max_tokens: int = None,
         stop: Optional[List[str]] = None,
         **kwargs,
-    )-> List[RequestOutput]: 
+    ): 
         if generate:
             kwargs = self.modify_gen_kwargs(kwargs)
             if 'max_tokens' in kwargs.keys():
