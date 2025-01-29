@@ -210,6 +210,7 @@ class HFLM(LM):
         autogptq: Optional[Union[bool, str]] = False,
         apply_chat_template: Optional[bool] = True, #apply chat template to input if available
         starting_max_length: Optional[int] = None,
+        max_gen_toks: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -366,6 +367,10 @@ class HFLM(LM):
         self.batch_sizes = {}
         self.max_batch_size = max_batch_size
         self.starting_max_length = starting_max_length
+        self.max_gen_toks = max_gen_toks
+
+        if self.max_gen_toks is not None and self.starting_max_length is not None:
+            self.starting_max_length += self.max_gen_toks
 
         self._conservative_batch_size = False
         if batch_size == "conservative":
@@ -464,9 +469,9 @@ class HFLM(LM):
             return self.tokenizer.model_max_length
         return self._DEFAULT_MAX_LENGTH
 
-    @property
-    def max_gen_toks(self) -> int:
-        return 256
+    #@property
+    #def max_gen_toks(self) -> int:
+    #    return 256
 
     @property
     def batch_size(self):
@@ -1484,9 +1489,13 @@ class HFLM(LM):
                 )
             if not until:
                 until = [self.tok_decode(self.eot_token_id)]
+                
             if "max_gen_toks" in kwargs.keys():
                 max_gen_toks = kwargs.pop("max_gen_toks")
             else:
+                max_gen_toks = 256
+
+            if self.max_gen_toks is not None:
                 max_gen_toks = self.max_gen_toks
 
             # set the max length in tokens of inputs ("context_enc")
