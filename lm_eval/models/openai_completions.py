@@ -4,6 +4,7 @@ from collections import defaultdict
 from importlib.util import find_spec
 from typing import List, Literal, Optional, Tuple
 import time
+import json
 
 from tqdm import tqdm
 
@@ -74,7 +75,12 @@ def oa_completion(client, chat: bool = False, **kwargs):
 
     try:
         resp = completion()
-        response = [c.message.content for c in resp.choices]
+        response = []
+        for c in resp.choices:
+            content = c.message.content
+            if content.startswith("assistant"):
+                content = content.replace("assistant", "")
+            response.append(content)
         eval_logger.info(f"Response: {response}")
         
     except Exception as e:
@@ -527,10 +533,12 @@ class OpenaiChatCompletionsLM(LM):
                                 f"Expected repr(kwargs['until']) to be of type Union[str, list] but got {until}"
                             )
                         kwargs["stop"] = until
-                    if "claude" in self.model:
+                    if "claude" in self.model or "llama" in self.model:
                         if "stop" in kwargs.keys():
                             kwargs.pop("stop")
                     kwargs["max_tokens"] = kwargs.pop("max_gen_toks", self.max_gen_toks)
+
+
                 else:
                     raise ValueError(
                         f"Expected repr(kwargs) to be of type repr(dict) but got {kwargs}"
@@ -544,6 +552,7 @@ class OpenaiChatCompletionsLM(LM):
                         chat=True,
                         messages=inps,
                         model=self.model,
+                        temperature=0,
                         **kwargs,
                     )
                 else:
