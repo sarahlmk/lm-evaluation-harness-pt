@@ -1420,6 +1420,17 @@ class HFLM(LM):
         meta["model_is_quantized"] = getattr(self.model, 'is_quantized', None)
         meta["model_device"] = str(self.model.device)
 
+
+        # batch tokenize contexts
+        context, all_gen_kwargs = zip(*(req.args for req in requests))
+        context_encoding: List[List[int]] = [
+            self.tok_encode(req.args[0], ctx_data=req.ctx_data) for req in requests
+        ]
+        ctx_data = [req.ctx_data for req in requests]
+        requests = [
+            ((a, b, c), d) for a, b, c, d in zip(context, context_encoding, ctx_data, all_gen_kwargs)
+        ]
+
         def _collate(x):
             """Defines the key for the sorted method"""
             # the negative sign on len(toks) sorts descending - this has a few advantages:
@@ -1428,8 +1439,7 @@ class HFLM(LM):
             #   padded context length. this is useful to simplify the batching logic and more importantly to make
             #   automatic adaptive batches much much easier to implement
             # - any OOMs will happen right away rather than near the end
-            toks = self.tok_encode(x[0][0], ctx_data=x[1])
-            return -len(toks), x[0][0]
+            return -len(x[0][1]), x[0][0]
 
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
         if self.batch_size == "auto":
@@ -1462,12 +1472,13 @@ class HFLM(LM):
         # we group requests by their generation_kwargs,
         # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
         # in the same batch.
-        re_ords = Collator([(reg.args, reg.ctx_data) for reg in requests], _collate, grouping=True)
+        re_ords = Collator(requests, _collate, grouping=True)
         chunks = re_ords.get_batched(n=batch_size, batch_fn=batch_fn)
         for chunk_data in chunks:
             # unpack the requests and kwargs for this batch
-            chunk, chunk_ctx_data = zip(*chunk_data)
-            contexts, all_gen_kwargs = zip(*chunk)
+            chunk, all_gen_kwargs = zip(*chunk_data)
+            contexts, _, chunk_ctx_data = zip(*chunk)
+            print('chunck size:', len(chunk_ctx_data))
             # we assume all gen kwargs in the batch are the same
             # this is safe to assume because the `grouper` object ensures it.
             gen_kwargs = all_gen_kwargs[0]
