@@ -1546,7 +1546,7 @@ class HFLM(LM):
 
                 s = self.tok_decode(cont_toks)
 
-                #for deepseek reasioning model
+                #for deepseek reasoning model
                 reasoning = None
                 if '</think>' in s:
                     reasoning = s[:s.rfind('</think>') + len('</think>')]
