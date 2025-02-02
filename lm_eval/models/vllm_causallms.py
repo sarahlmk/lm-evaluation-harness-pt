@@ -308,7 +308,7 @@ class VLLM(LM):
         self,
         requests: List[List[Dict[str, str]]] = None,
         generate: bool = False,
-        max_tokens: int = None,
+        max_tokens: Optional[int] = None,
         stop: Optional[List[str]] = None,
         **kwargs,
     ): 
@@ -505,15 +505,14 @@ class VLLM(LM):
                 else:
                     print('Found answer in cache', metas)
                     response = metas
-                    skip_sleep = True
 
                 for resp, (context, args_) in zip(response, chunk):
                     stat = {}
                     s = resp.outputs[0].text
                     reasoning = None
                     if '</think>' in s:
-                        reasoning = s[:s.rfind('</think>') + len('</think>')]
-                        s = s[s.rfind('</think>') + len('</think>'):]
+                        reasoning = s[:s.rfind('</think>') + len('</think>')].strip()
+                        s = s[s.rfind('</think>') + len('</think>'):].strip()
                     
                     if reasoning is not None:
                         stat['reasoning'] = reasoning
