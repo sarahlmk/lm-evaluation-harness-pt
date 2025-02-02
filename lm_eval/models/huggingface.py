@@ -1489,13 +1489,14 @@ class HFLM(LM):
                 )
             if not until:
                 until = [self.tok_decode(self.eot_token_id)]
-
+            
             if "max_gen_toks" in kwargs.keys():
                 max_gen_toks = kwargs.pop("max_gen_toks")
             else:
                 max_gen_toks = 256
 
             if self.max_gen_toks is not None:
+                until = [self.tok_decode(self.eot_token_id)]
                 max_gen_toks = self.max_gen_toks
 
             # set the max length in tokens of inputs ("context_enc")
@@ -1549,8 +1550,8 @@ class HFLM(LM):
                 #for deepseek reasoning model
                 reasoning = None
                 if '</think>' in s:
-                    reasoning = s[:s.rfind('</think>') + len('</think>')]
-                    s = s[s.rfind('</think>') + len('</think>'):]
+                    reasoning = s[:s.rfind('</think>') + len('</think>')].strip()
+                    s = s[s.rfind('</think>') + len('</think>'):].strip()
 
                 # use secondary stop seqs to cut off should-have-been-stopped content post-hoc
                 for term in until:
