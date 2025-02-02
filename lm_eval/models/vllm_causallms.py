@@ -68,7 +68,7 @@ class VLLM(LM):
         quantization: Optional[str] = None,
         max_gen_toks: int = _DEFAULT_MAX_GEN_TOKENS,
         swap_space: int = 4,
-        batch_size: Union[str, int] = 1,
+        batch_size: Union[str, int] = 'auto',
         max_batch_size=None,
         max_length: int = None,
         max_model_len: int = None,
@@ -121,8 +121,16 @@ class VLLM(LM):
             if isinstance(batch_size, str) and "auto" in batch_size
             else int(batch_size)
         )
+
         if self.data_parallel_size <= 1:
             self.model = LLM(**self.model_args)
+
+            #if self.batch_size == "auto":
+            #    import math
+            #    max_concurrency = (self.model.llm_engine.cache_config.num_gpu_blocks * self.model.llm_engine.cache_config.block_size /
+            #                self.model.llm_engine.model_config.max_model_len)
+            #    self.batch_size = math.floor(max_concurrency)
+            #    eval_logger.info(f"Auto-batched inference set to batch size {self.batch_size}")
         else:
             eval_logger.warning(
                 "You might experience occasional issues with model weight downloading when data_parallel is in use. To ensure stable performance, run with data_parallel_size=1 until the weights are downloaded and cached."
@@ -136,6 +144,7 @@ class VLLM(LM):
             self._config = AutoConfig.from_pretrained(
                 pretrained, trust_remote_code=trust_remote_code, revision=revision
             )
+        eval_logger.info(f"Batch size set to {self.batch_size}")
         self.tokenizer = get_tokenizer(
             tokenizer if tokenizer else pretrained,
             tokenizer_mode=tokenizer_mode,
@@ -325,7 +334,8 @@ class VLLM(LM):
         outputs = self.model.chat(
             messages=requests,
             sampling_params=sampling_params,
-            use_tqdm=True if self.batch_size == "auto" else False,
+            #use_tqdm=True if self.batch_size == "auto" else False,
+            use_tqdm=False,
             lora_request=self.lora_request,
         )
         return outputs
@@ -434,8 +444,14 @@ class VLLM(LM):
     def generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[str]:
-        res = defaultdict(list)
-        stats = defaultdict(list)
+        #res = defaultdict(list)
+        #stats = defaultdict(list)
+
+        res = []
+        stats = []
+        #resp_exist = {}
+
+        """
         re_ords = {}
         
         # we group requests by their generation_kwargs,
@@ -448,91 +464,127 @@ class VLLM(LM):
                 [(req, req.args[1]) for req in reqs], lambda x: (-len(x[0].args[0]), x[0].args[0])
             )
 
-        resp_exist = {}
-
         pbar = tqdm(total=len(requests), disable=(self.rank != 0))
+        """
+
+        context, all_gen_kwargs = zip(*(req.args for req in requests))
+        ctx_data = [req.ctx_data for req in requests]
+        requests = [
+            ((a, b), c) for a, b, c in zip(context, ctx_data, all_gen_kwargs)
+        ]
+
+        def _collate_gen(_requests):
+            # the negative sign on len(toks) sorts descending - this has a few advantages:
+            # - time estimates will always be over not underestimates, which is more useful for planning
+            # - to know the size of a batch when going through the list, you know the first one is always the batch
+            #   padded context length. this is useful to simplify the batching logic and more importantly to make
+            #   automatic adaptive batches much much easier to implement
+            # - any OOMs will happen right away rather than near the end
+           return -len(_requests[0][0]), _requests[0][0]
+
+        # we group requests by their generation_kwargs,
+        # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
+        # in the same batch.
+        re_ords = Collator(requests, _collate_gen, group_by="gen_kwargs")
+        chunks = re_ords.get_batched(
+            n=int(self.batch_size) if self.batch_size != "auto" else 0, batch_fn=None
+        )
+
+        pbar = tqdm(
+            total=len(requests),
+            disable=(disable_tqdm or (self.rank != 0)),
+            desc="Running generate_until requests",
+        )
+
+
         eos = self.tokenizer.decode(self.eot_token_id)
+        """
         for key, re_ord in re_ords.items():
             # n needs to be 1 because messages in
             # chat completion are not batch but
             # is regarded as a single conversation.
             chunks = utils.chunks(re_ord.get_reordered(), n=1)
-            for chunk in chunks:
-                contexts, all_gen_kwargs = zip(*chunk)
+        """
+        for chunk in chunks:
+            context_and_ctxdata, all_gen_kwargs = zip(*chunk)
+            contexts, chunk_ctx_data = zip(*context_and_ctxdata)
+
+            conversations = []
+            for data in chunk_ctx_data:
                 inps = []
-                metas = []    
-                for context in contexts:
-                    data = context.ctx_data
-                    inps.append({"role": "system", "content": self.fix_text(data['description'])})
-                    for shot, ans in data['fewshots']:
-                        inps.append({"role": "user", "content": self.fix_text(shot)})
-                        inps.append({"role": "assistant", "content": self.fix_text(ans)})
-                    inps.append({"role": "user", "content": self.fix_text(data['example'])})
-                    
-                    if context.task_name in resp_exist and context.doc['id'] in resp_exist[context.task_name].keys():
-                        metas.append(resp_exist[context.task_name][context.doc['id']])
-                    else:
-                        metas.append(None)
-                    
+                metas = []
 
-                #inps = [{"role": "user", "content": context} for context in contexts]
+                inps.append({"role": "system", "content": self.fix_text(data['description'])})
+                for shot, ans in data['fewshots']:
+                    inps.append({"role": "user", "content": self.fix_text(shot)})
+                    inps.append({"role": "assistant", "content": self.fix_text(ans)})
+                inps.append({"role": "user", "content": self.fix_text(data['example'])})
+                
+                #if context.task_name in resp_exist and context.doc['id'] in resp_exist[context.task_name].keys():
+                #    metas.append(resp_exist[context.task_name][context.doc['id']])
+                #else:
+                metas.append(None)
 
-                gen_kwargs = all_gen_kwargs[0]
-                # unpack our keyword arguments.
-                if isinstance(gen_kwargs, dict):
-                    kwargs = copy.deepcopy(gen_kwargs)  # edge case for repeats > 1
-                    # add EOS token to stop sequences
-                    until = handle_stop_sequences(kwargs.pop("until", None), eos=eos)
-                else:
-                    raise ValueError(
-                        f"Expected `kwargs` to be of type `dict` but got {type(gen_kwargs)}"
-                    )
-                if "max_gen_toks" in kwargs.keys():
-                    max_gen_toks = kwargs.pop("max_gen_toks")
-                else:
-                    max_gen_toks = self.max_gen_toks
+                conversations.append(inps)
+                
+            # we assume all gen kwargs in the batch are the same
+            # this is safe to assume because the `grouper` object ensures it.
+            gen_kwargs = all_gen_kwargs[0]
+            # unpack our keyword arguments.
+            if isinstance(gen_kwargs, dict):
+                kwargs = copy.deepcopy(gen_kwargs)  # edge case for repeats > 1
+                # add EOS token to stop sequences
+                until = handle_stop_sequences(kwargs.pop("until", None), eos=eos)
+            else:
+                raise ValueError(
+                    f"Expected `kwargs` to be of type `dict` but got {type(gen_kwargs)}"
+                )
+            if "max_gen_toks" in kwargs.keys():
+                max_gen_toks = kwargs.pop("max_gen_toks")
+            else:
+                max_gen_toks = self.max_gen_toks
 
-                skip_sleep = False
-                if metas[0] is None:
-                    #eval_logger.info(inps)
-                    response = self._model_chat(
-                        requests=inps,
-                        generate=True,
-                        max_tokens=max_gen_toks,
-                        stop=until,
-                        **kwargs,
-                    )
-                else:
-                    print('Found answer in cache', metas)
-                    response = metas
+            #skip_sleep = False
+            #if metas[0] is None:
+            #eval_logger.info(inps)
+            response = self._model_chat(
+                requests=conversations,
+                generate=True,
+                max_tokens=max_gen_toks,
+                stop=until,
+                **kwargs,
+            )
+            #else:
+            #    print('Found answer in cache', metas)
+            #    response = metas
 
-                for resp, (context, args_) in zip(response, chunk):
-                    stat = {}
-                    s = resp.outputs[0].text
-                    reasoning = None
-                    if '</think>' in s:
-                        reasoning = s[:s.rfind('</think>') + len('</think>')].strip()
-                        s = s[s.rfind('</think>') + len('</think>'):].strip()
-                    
-                    if reasoning is not None:
-                        stat['reasoning'] = reasoning
-                    stat['prompt'] = resp.prompt
+            for resp, context in zip(response, contexts):
+                stat = {}
+                s = resp.outputs[0].text
+                reasoning = None
+                if '</think>' in s:
+                    reasoning = s[:s.rfind('</think>') + len('</think>')].strip()
+                    s = s[s.rfind('</think>') + len('</think>'):].strip()
+                
+                if reasoning is not None:
+                    stat['reasoning'] = reasoning
+                stat['prompt'] = resp.prompt
 
-                    res[key].append(s)
-                    stats[key].append(stat)
+                res.append(s)
+                stats.append(stat)
 
-                    self.cache_hook.add_partial(
-                        "generate_until", (context, {"until": until}), s
-                    )
-                    pbar.update(1)
+                self.cache_hook.add_partial(
+                    "generate_until", (context, gen_kwargs), s
+                )
+                pbar.update(1)
 
-            # reorder this group of results back to original unsorted form
-            res[key] = re_ord.get_original(res[key])
-            stats[key] = re_ord.get_original(stats[key])
+        # reorder this group of results back to original unsorted form
+        res = re_ords.get_original(res)
+        stats = re_ords.get_original(stats)
 
         pbar.close()
 
-        return grouper.get_original(res), grouper.get_original(stats), {}
+        return res, stats, {}
 
     def old_generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False
@@ -597,7 +649,6 @@ class VLLM(LM):
             max_ctx_len = self.max_length - max_gen_toks
             context_encoding = [x[-max_ctx_len:] for x in context_encoding]
 
-            print('context', len(context), context)
             # perform batched generation
             cont = self._model_generate(
                 requests=context_encoding,
