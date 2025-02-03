@@ -1484,7 +1484,7 @@ class HFLM(LM):
             effective_batch_size = len(chunk_ctx_data)
             batch_sizes.append(effective_batch_size)
             if len(batch_sizes) < 3:
-                print("Effective batch size: ", len(effective_batch_size))
+                print("Effective batch size: ", effective_batch_size)
             
             # we assume all gen kwargs in the batch are the same
             # this is safe to assume because the `grouper` object ensures it.

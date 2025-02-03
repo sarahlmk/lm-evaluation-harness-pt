@@ -29,6 +29,7 @@ from lm_eval.utils import (
 from lm_eval import utils
 
 try:
+    import torch
     import ray
     from ray.util.multiprocessing import Pool
     from vllm import LLM, SamplingParams
@@ -328,8 +329,7 @@ class VLLM(LM):
         outputs = self.model.chat(
             messages=requests,
             sampling_params=sampling_params,
-            #use_tqdm=True if self.batch_size == "auto" else False,
-            use_tqdm=False,
+            use_tqdm=True if self.batch_size == "auto" else False,
             lora_request=self.lora_request,
         )
         return outputs
@@ -447,11 +447,11 @@ class VLLM(LM):
         meta['n_gpus'] = self.gpus
         #meta['accelerate_num_process'] = None
         #meta["model_sha"] = str(self.model.config._commit_hash)
-        meta["model_dtype"] = str(self.llm_engine.model_config.dtype)
+        meta["model_dtype"] = str(self.model.llm_engine.model_config.dtype)
         #meta["model_num_parameters"] = self.model.num_parameters()
         meta["model_is_loaded_in_4bit"] = None
         meta["model_is_loaded_in_8bit"] = None
-        if hasattr(self.self.model.llm_engine.vllm_config, 'quant_config'):
+        if hasattr(self.model.llm_engine.vllm_config, 'quant_config'):
             quant_config = self.model.llm_engine.vllm_config.quant_config
             meta["model_is_loaded_in_4bit"] = getattr(quant_config, 'load_in_4bit', None)
             meta["model_is_loaded_in_8bit"] = getattr(quant_config, 'load_in_8bit', None)
@@ -503,7 +503,7 @@ class VLLM(LM):
             effective_batch_size = len(chunk_ctx_data)
             batch_sizes.append(effective_batch_size)
             if len(batch_sizes) < 3:
-                print("Effective batch size: ", len(effective_batch_size))
+                print("Effective batch size: ", effective_batch_size)
                 
             conversations = []
             for data in chunk_ctx_data:
@@ -549,7 +549,6 @@ class VLLM(LM):
 
             response = self._model_chat(
                 requests=conversations,
-                generate=True,
                 max_tokens=max_gen_toks,
                 stop=until,
                 **kwargs,
