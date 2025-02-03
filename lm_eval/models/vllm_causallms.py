@@ -94,6 +94,9 @@ class VLLM(LM):
             "Either max_length or max_model_len may be provided, but not both"
         )
 
+        gpus = torch.cuda.device_count()
+        self.gpus = gpus
+
         self._max_length = max_model_len if max_model_len is not None else max_length
         self.tensor_parallel_size = int(tensor_parallel_size)
         self.data_parallel_size = int(data_parallel_size)
@@ -316,20 +319,11 @@ class VLLM(LM):
     def _model_chat(
         self,
         requests: List[List[Dict[str, str]]] = None,
-        generate: bool = False,
         max_tokens: Optional[int] = None,
         stop: Optional[List[str]] = None,
         **kwargs,
     ): 
-        if generate:
-            kwargs = self.modify_gen_kwargs(kwargs)
-            if 'max_tokens' in kwargs.keys():
-                del kwargs['max_tokens']
-            sampling_params = SamplingParams(max_tokens=self._DEFAULT_MAX_GEN_TOKENS, stop=None, **kwargs)
-        else:
-            sampling_params = SamplingParams(
-                temperature=0, prompt_logprobs=1, max_tokens=self._DEFAULT_MAX_GEN_TOKENS, detokenize=False
-            )
+        sampling_params = SamplingParams(max_tokens=max_tokens, stop=stop, **kwargs)
 
         outputs = self.model.chat(
             messages=requests,
@@ -444,28 +438,32 @@ class VLLM(LM):
     def generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False
     ) -> List[str]:
-        #res = defaultdict(list)
-        #stats = defaultdict(list)
-
         res = []
         stats = []
-        #resp_exist = {}
 
-        """
-        re_ords = {}
-        
-        # we group requests by their generation_kwargs,
-        # so that we don't try to execute e.g. greedy sampling and temp=0.8 sampling
-        # in the same batch.
-        grouper = utils.Grouper(requests, lambda x: str(x.args[1]))
-        for key, reqs in grouper.get_grouped().items():
-            # within each set of reqs for given kwargs, we reorder by token length, descending.
-            re_ords[key] = utils.Reorderer(
-                [(req, req.args[1]) for req in reqs], lambda x: (-len(x[0].args[0]), x[0].args[0])
-            )
+        meta = {}
 
-        pbar = tqdm(total=len(requests), disable=(self.rank != 0))
-        """
+        batch_sizes = []
+        meta['n_gpus'] = self.gpus
+        #meta['accelerate_num_process'] = None
+        #meta["model_sha"] = str(self.model.config._commit_hash)
+        meta["model_dtype"] = str(self.llm_engine.model_config.dtype)
+        #meta["model_num_parameters"] = self.model.num_parameters()
+        meta["model_is_loaded_in_4bit"] = None
+        meta["model_is_loaded_in_8bit"] = None
+        if hasattr(self.self.model.llm_engine.vllm_config, 'quant_config'):
+            quant_config = self.model.llm_engine.vllm_config.quant_config
+            meta["model_is_loaded_in_4bit"] = getattr(quant_config, 'load_in_4bit', None)
+            meta["model_is_loaded_in_8bit"] = getattr(quant_config, 'load_in_8bit', None)
+        meta["model_is_quantized"] = self.model.llm_engine.model_config.quantization is not None
+        meta["model_quantization"] = self.model.llm_engine.model_config.quantization
+        meta["model_device"] = str(self.model.llm_engine.device_config.device)
+        if hasattr(self.model.llm_engine.model_config, 'hf_config'):
+            hf_config = self.model.llm_engine.model_config.hf_config
+            meta["model_sha"] = hf_config._commit_hash
+
+        meta["batch_size"] = self.batch_size
+        meta["max_length"] = self.max_length
 
         context, all_gen_kwargs = zip(*(req.args for req in requests))
         ctx_data = [req.ctx_data for req in requests]
@@ -498,32 +496,24 @@ class VLLM(LM):
 
 
         eos = self.tokenizer.decode(self.eot_token_id)
-        """
-        for key, re_ord in re_ords.items():
-            # n needs to be 1 because messages in
-            # chat completion are not batch but
-            # is regarded as a single conversation.
-            chunks = utils.chunks(re_ord.get_reordered(), n=1)
-        """
         for chunk in chunks:
             context_and_ctxdata, all_gen_kwargs = zip(*chunk)
             contexts, chunk_ctx_data = zip(*context_and_ctxdata)
-
+            
+            effective_batch_size = len(chunk_ctx_data)
+            batch_sizes.append(effective_batch_size)
+            if len(batch_sizes) < 3:
+                print("Effective batch size: ", len(effective_batch_size))
+                
             conversations = []
             for data in chunk_ctx_data:
                 inps = []
-                metas = []
 
                 inps.append({"role": "system", "content": self.fix_text(data['description'])})
                 for shot, ans in data['fewshots']:
                     inps.append({"role": "user", "content": self.fix_text(shot)})
                     inps.append({"role": "assistant", "content": self.fix_text(ans)})
                 inps.append({"role": "user", "content": self.fix_text(data['example'])})
-                
-                #if context.task_name in resp_exist and context.doc['id'] in resp_exist[context.task_name].keys():
-                #    metas.append(resp_exist[context.task_name][context.doc['id']])
-                #else:
-                metas.append(None)
 
                 conversations.append(inps)
                 
@@ -541,12 +531,22 @@ class VLLM(LM):
                 )
             if "max_gen_toks" in kwargs.keys():
                 max_gen_toks = kwargs.pop("max_gen_toks")
-            else:
-                max_gen_toks = self.max_gen_toks
+            #else:
+            #    max_gen_toks = self.max_gen_toks
 
-            #skip_sleep = False
-            #if metas[0] is None:
-            #eval_logger.info(inps)
+            if "until" in kwargs.keys():
+                del kwargs["until"]
+            if "stop" in kwargs.keys():
+                del kwargs["stop"]
+            
+            max_gen_toks = self._DEFAULT_MAX_GEN_TOKENS
+            until = None
+            kwargs = self.modify_gen_kwargs(kwargs)
+
+            meta["max_gen_toks"] = max_gen_toks
+            meta["until"] = until
+            meta["gen_kwargs"] = kwargs
+
             response = self._model_chat(
                 requests=conversations,
                 generate=True,
@@ -554,9 +554,6 @@ class VLLM(LM):
                 stop=until,
                 **kwargs,
             )
-            #else:
-            #    print('Found answer in cache', metas)
-            #    response = metas
 
             for resp, context in zip(response, contexts):
                 stat = {}
@@ -570,6 +567,7 @@ class VLLM(LM):
                     stat['reasoning'] = reasoning
                 stat['prompt'] = resp.prompt
 
+                stat['batch_size'] = effective_batch_size
                 res.append(s)
                 stats.append(stat)
 
@@ -578,13 +576,16 @@ class VLLM(LM):
                 )
                 pbar.update(1)
 
+        effective_batch_size = sum(batch_sizes)/len(batch_sizes)
+        meta["effective_batch_size"] = effective_batch_size
+
         # reorder this group of results back to original unsorted form
         res = re_ords.get_original(res)
         stats = re_ords.get_original(stats)
 
         pbar.close()
 
-        return res, stats, {}
+        return res, stats, meta
 
     def old_generate_until(
         self, requests: List[Instance], disable_tqdm: bool = False

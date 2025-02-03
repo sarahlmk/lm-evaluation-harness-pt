@@ -1407,6 +1407,8 @@ class HFLM(LM):
             "chat_type": self.chat_type
         }
 
+        batch_sizes = []
+
         meta['n_gpus'] = self.gpus
         meta['accelerate_num_process'] = None
         if hasattr(self, "accelerator"):
@@ -1478,7 +1480,12 @@ class HFLM(LM):
             # unpack the requests and kwargs for this batch
             chunk, all_gen_kwargs = zip(*chunk_data)
             contexts, _, chunk_ctx_data = zip(*chunk)
-            print('chunck size:', len(chunk_ctx_data))
+
+            effective_batch_size = len(chunk_ctx_data)
+            batch_sizes.append(effective_batch_size)
+            if len(batch_sizes) < 3:
+                print("Effective batch size: ", len(effective_batch_size))
+            
             # we assume all gen kwargs in the batch are the same
             # this is safe to assume because the `grouper` object ensures it.
             gen_kwargs = all_gen_kwargs[0]
@@ -1575,10 +1582,14 @@ class HFLM(LM):
                 stat['max_ctx_length'] = max_ctx_len
                 stat['max_gen_toks'] = max_gen_toks
                 stat['reasoning'] = reasoning
+                stat['batch_size'] = effective_batch_size
                 stats.append(stat)
 
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), s)
                 pbar.update(1)
+
+        effective_batch_size = sum(batch_sizes)/len(batch_sizes)
+        meta["effective_batch_size"] = effective_batch_size
         # reorder this group of results back to original unsorted form
         res = re_ords.get_original(res)
         stats = re_ords.get_original(stats)
