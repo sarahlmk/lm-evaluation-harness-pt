@@ -19,7 +19,6 @@ description: "Abaixo contém o texto de tweets de usuários do Twitter em portug
 doc_to_text: "Texto: {{content}}\nPergunta: Qual a principal emoção apresentada no texto?\nResposta:"
 doc_to_target: !function util.sparrow_emotion_por_trans_label
 generation_kwargs:
-  max_gen_toks: 32
   do_sample: false
   temperature: 0.0
   top_k: null

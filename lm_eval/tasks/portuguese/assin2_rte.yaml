@@ -18,7 +18,6 @@ description: "Abaixo estão pares de premissa e hipótese. Para cada par, indiqu
 doc_to_text: "Premissa: {{premise}}\nHipótese: {{hypothesis}}\nPergunta: A hipótese pode ser inferida pela premissa? Sim ou Não?\nResposta:"
 doc_to_target: "{{['Não', 'Sim'][entailment_judgment]}}"
 generation_kwargs:
-  max_gen_toks: 32
   do_sample: false
   temperature: 0.0
   top_k: null

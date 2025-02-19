@@ -16,7 +16,6 @@ description: "Abaixo contém o texto de tweets de usuários do Twitter em portug
 doc_to_text: "Texto: {{content}}\nPergunta: O texto contém discurso de ódio?\nResposta:"
 doc_to_target: "{{'Sim' if label == 'Hate' else 'Não'}}"
 generation_kwargs:
-  max_gen_toks: 32
   do_sample: false
   temperature: 0.0
   top_k: null

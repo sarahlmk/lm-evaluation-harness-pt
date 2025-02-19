@@ -16,7 +16,6 @@ description: "Abaixo estão pares de pergunta e resposta. Para cada par, você d
 doc_to_text: "Pergunta: {{question}}\nResposta: {{answer}}\nA resposta dada satisfaz à pergunta? Sim ou Não?"
 doc_to_target: "{{['Não', 'Sim'][label]}}"
 generation_kwargs:
-  max_gen_toks: 32
   do_sample: false
   temperature: 0.0
   top_k: null

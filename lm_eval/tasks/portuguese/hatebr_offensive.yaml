@@ -19,7 +19,6 @@ description: "Abaixo contém o texto de comentários de usuários do Instagram e
 doc_to_text: "Texto: {{sentence}}\nPergunta: O texto é ofensivo?\nResposta:"
 doc_to_target: "{{'Sim' if label == 1 else 'Não'}}"
 generation_kwargs:
-  max_gen_toks: 32
   do_sample: false
   temperature: 0.0
   top_k: null

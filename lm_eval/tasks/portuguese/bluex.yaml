@@ -22,7 +22,6 @@ doc_to_target: "{{answerKey}}"
 should_decontaminate: true
 doc_to_decontamination_query: !function util.enem_doc_to_text
 generation_kwargs:
-  max_gen_toks: 32
   do_sample: false
   temperature: 0.0
   top_k: null

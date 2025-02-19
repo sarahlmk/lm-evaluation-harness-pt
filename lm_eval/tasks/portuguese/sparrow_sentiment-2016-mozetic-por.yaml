@@ -16,7 +16,6 @@ description: "Abaixo contém o texto de tweets de usuários do Twitter em portug
 doc_to_text: "Texto: {{content}}\nPergunta: O sentimento do texto é Positivo, Neutro ou Negativo?\nResposta:"
 doc_to_target: "{{'Positivo' if label == 'Positive' else ('Negativo' if label == 'Negative' else 'Neutro')}}"
 generation_kwargs:
-  max_gen_toks: 32
   do_sample: false
   temperature: 0.0
   top_k: null
