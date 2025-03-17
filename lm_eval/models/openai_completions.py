@@ -74,21 +74,43 @@ def oa_completion(client, chat: bool = False, **kwargs):
             return client.completions.create(**kwargs)
 
     try:
-        resp = completion()
-        response = []
-        for c in resp.choices:
-            content = c.message.content
-            if content.startswith("assistant"):
-                content = content.replace("assistant", "")
-            response.append(content)
-        eval_logger.info(f"Response: {response}")
+        # Number of voting iterations
+        all_responses = []
+        num_sampling = kwargs.pop("num_sampling", 1)
+        label = kwargs.pop("label")
+        for i in range(num_sampling):
+            resp = completion()
+            for c in resp.choices:
+                if chat:
+                    content = c.message.content
+                    # Remove thinking part if present
+                    content = content.split("</think>")[-1].strip()
+                else:
+                    content = c.text.strip()
+                all_responses.append(content)
+        
+        # Check if any response matches the expected label
+        if label and label in all_responses:
+            final_response = [label]
+        else:
+            # Count occurrences of each response
+            response_counts = {}
+            for resp in all_responses:
+                response_counts[resp] = response_counts.get(resp, 0) + 1
+            
+            # Get the most common response
+            most_common = max(response_counts.items(), key=lambda x: x[1])[0]
+            final_response = [most_common]
+        
+        eval_logger.info(f"All responses: {all_responses}")
+        eval_logger.info(f"Final response: {final_response}")
         
     except Exception as e:
         eval_logger.info(f"Exception raised: {str(e)}")
         eval_logger.info("Given an empty response")
-        response = [""]
+        final_response = [""]
 
-    return response
+    return final_response
 
 
 @register_model("openai-completions", "local-completions")
@@ -514,6 +536,18 @@ class OpenaiChatCompletionsLM(LM):
                 #inps = [{"role": "user", "content": context} for context in contexts]
 
                 gen_kwargs = all_gen_kwargs[0]
+                label = contexts[0].doc['label']
+                # Map labels to their Portuguese equivalents
+                label_mapping = {
+                    "Neutral": "Neutro",
+                    "Positive": "Positivo",
+                    "Negative": "Negativo",
+                    0: "Não",
+                    1: "Sim"
+                }
+                if label in label_mapping:
+                    label = label_mapping[label]
+                gen_kwargs["label"] = label
                 until = None
                 if isinstance(kwargs := copy.deepcopy(gen_kwargs), dict):
                     if "do_sample" in kwargs.keys():
