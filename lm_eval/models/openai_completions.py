@@ -79,6 +79,7 @@ def oa_completion(client, chat: bool = False, **kwargs):
         num_sampling = kwargs.pop("num_sampling", 1)
         if num_sampling > 1:
             kwargs["temperature"] = 0.6
+            kwargs["top_p"] = 0.95
         label = kwargs.pop("label")
         for i in range(num_sampling):
             resp = completion()
